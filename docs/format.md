@@ -40,7 +40,11 @@ indexed records still require consistent trailing headers.
 Time is relative to the first video timestamp in metadata. Gyro timing,
 rolling-shutter readout and a reference-fitted attitude offset are different
 quantities; do not add them indiscriminately. The current renderer uses its
-profile's measured attitude offset and does not perform per-row correction.
+profile's measured attitude offset. With `--rolling-shutter auto`, it also uses
+embedded sensor readout duration and the recorded attitude trajectory to correct
+native sensor-row timing. This does not use the raw IMU record for high-rate
+stabilization. Missing readout metadata disables row correction; invalid values
+fail preflight.
 
 ## Geometry
 
@@ -61,9 +65,14 @@ A spherical feature fit estimates the relative lens rotation. A separate referen
 fit estimates the camera-to-attitude mounting and time offset from the reference's
 vertical. Heading following and creative reframing are independent policies.
 
-A strip renderer maps the output sphere into each lens, then uses angular feather
-weights in the overlap. It does not solve camera translation, near-subject parallax,
-optical-flow seams, exposure matching, or propeller/body removal.
+A strip renderer maps the output sphere into each lens. The default `flow` seam
+mode checks bidirectional optical-flow correspondence in the overlap and applies
+bounded local alignment and color matching before blending. The optional
+`adaptive` mode also moves the seam along a temporally limited path through areas
+of better lens agreement; `feather` retains angular blending without those flow
+corrections. These operations do not solve camera translation, severe near-subject
+parallax/occlusion, or propeller/body removal. See the
+[current quality evidence](quality-v0.3.md) for measured behavior and limits.
 
 ## Output metadata
 
@@ -71,10 +80,19 @@ optical-flow seams, exposure matching, or propeller/body removal.
 equirectangular sphere with zero additional presentation rotation. The fields
 follow the [Spherical Video V2 specification](https://github.com/google/spatial-media/blob/master/docs/spherical-video-v2-rfc.md).
 
+The output contains one newly encoded video track. It does not retain the two
+original HEVC lens tracks, `INS.Subtitle` track, indexed trailer, or complete camera
+telemetry. The external receipt contains processing provenance and frame mapping,
+not a lossless copy of those records. See the
+[conversion tradeoffs](../README.md#what-conversion-preserves-and-bakes-in) before
+treating an export as an archive.
+
 The renderer first tags its own moov-last MP4. A bounded relocation pass then moves
 `moov` forward, shifts `stco/co64` sample offsets and promotes tables to 64 bits if
 necessary. This avoids a remux path that dropped spatial metadata in a tested
-FFmpeg build. Media bytes are copied unchanged, and the final file is decoded
-and inspected before publication. Arbitrary fragmented containers are not supported.
+FFmpeg build. Only this final container relocation copies encoded media bytes
+unchanged; the preceding stitch render and H.264 encode are not lossless. The final
+file is decoded and inspected before publication. Arbitrary fragmented containers
+are not supported.
 
 See [NOTICE](../NOTICE) for public research references and provenance.
