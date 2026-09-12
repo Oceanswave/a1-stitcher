@@ -1,3 +1,9 @@
+# Current qualification
+
+See [the 0.5 report](quality-v0.5.md) for native-resolution/10-bit output, GPU and
+gyro qualification. The measurements below describe the original CPU prototype
+and are retained as historical evidence; they are not the current defaults.
+
 # Qualification and current limits
 
 A1 Stitcher 0.3.0 is an alpha release. Reusable packaging, automated tests and
@@ -64,7 +70,7 @@ occluded detail. See [0.2.0 quality evidence](quality-v0.2.md) and the
 [0.3.0 Studio comparison pass](quality-v0.3.md). Adaptive seam placement remains
 opt-in; it is not a camera/propeller mask or occlusion reconstruction.
 
-The current output path is 8-bit SDR BT.709. I-Log/D-Log, HDR, higher-bit-depth
+The original prototype output path was 8-bit SDR BT.709. I-Log/D-Log, HDR, higher-bit-depth
 processing, audio preservation, other camera models, and broad hardware/firmware
 coverage are not qualified. The application rejects unrecognized profiles rather
 than applying an assumed transform. Source color tags alone do not establish a

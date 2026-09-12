@@ -11,11 +11,11 @@ metadata dumps. When changing lens geometry, timing, color or seams, include a
 visual comparison and state exactly what it establishes. Passing a unit test does
 not prove perceptual stitching or stabilization quality.
 
-Keep processing defaults conservative. Preserve originals and complete outputs;
+Default to the best qualified quality settings; keep unqualified algorithms optional. Preserve originals and complete outputs;
 keep partial work isolated. Do not add another camera profile by copying A1 or X5
 constants. Unknown encodings should fail with an actionable error.
 
 Pull requests are welcome for high-rate IMU fusion, rolling-shutter correction,
-parallax/seam handling, GPU remapping, higher-bit-depth color, independent camera
+parallax/seam handling, broader GPU qualification, log/HDR input color, independent camera
 qualification, and better public synthetic fixtures. Use separate coherent changes
 so processing and image-quality differences remain reviewable.

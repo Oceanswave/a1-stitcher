@@ -108,7 +108,7 @@ A spherical feature fit estimates the relative lens rotation. A separate referen
 fit estimates the camera-to-attitude mounting and time offset from the reference's
 vertical. Heading following and creative reframing are independent policies.
 
-A strip renderer maps the output sphere into each lens. The default `flow` seam
+The CPU strip renderer or independent Metal kernel maps the output sphere into each lens. The default `flow` seam
 mode checks bidirectional optical-flow correspondence in the overlap and applies
 bounded local alignment and color matching before blending. The optional
 `adaptive` mode also moves the seam along a temporally limited path through areas
@@ -140,3 +140,30 @@ file is decoded and inspected before publication. Arbitrary fragmented container
 are not supported.
 
 See [NOTICE](../NOTICE) for public research references and provenance.
+
+## Finishing and motion options in 0.5
+
+Native lens decoding and an 8192-wide sphere are the defaults. HEVC10 and ProRes
+paths decode to 16-bit BGR, analyze flow on 8-bit proxies, and retain the 16-bit
+signal for final remapping/blending before a 10-bit encode. The H.264 review path
+remains 8-bit. Input acceptance still covers only tested 8-bit full-range SDR
+BT.709 lens tracks; this does not establish log/HDR support.
+
+The optional gyro path decodes the observed 20-byte binary record-3 samples
+(timestamp, three unsigned accelerometer channels, three unsigned gyro channels),
+using the embedded gyro range and offset-binary interpretation. Per-unit rigid
+rotation, timing and bias are fitted against low-pass recorded attitude and
+validated on another recording. Raw integration is bounded by recorded-attitude
+anchors; the default spacing within gyro mode is 0.1 seconds, configurable from
+0.02 to 1 second. Long sensor gaps, saturation and unsupported rates fail.
+Calibration at low frequency is not proof of high-frequency image timing.
+
+Metal carries the same MEI/Brown geometry, two native-row timing iterations and
+confidence-gated seam model. Low-resolution seam analysis remains on CPU. Small
+interpolation differences are measured separately from end-to-end throughput.
+Native Swift/Metal source participates in the processing fingerprint and ships
+inside the wheel; no vendor binary or model is required.
+
+See the README's [source-versus-output importance table](../README.md#what-conversion-preserves-and-bakes-in)
+for what remains editable, is baked into pixels, is exported separately or is
+unsupported. The video does not retain the raw trailer or sensor streams.

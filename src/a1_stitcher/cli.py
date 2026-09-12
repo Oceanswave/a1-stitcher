@@ -28,8 +28,8 @@ def doctor():
     paths = {name: binary(name) for name in ["ffmpeg", "ffprobe"]}
     encoders = run([paths["ffmpeg"], "-hide_banner", "-encoders"]).decode()
     decoders = run([paths["ffmpeg"], "-hide_banner", "-decoders"]).decode()
-    if "libx264" not in encoders or "hevc" not in decoders:
-        raise StitchError("FFmpeg must provide the libx264 encoder and HEVC decoder")
+    if "libx265" not in encoders or "hevc" not in decoders:
+        raise StitchError("FFmpeg must provide the default libx265 encoder and HEVC decoder")
     if not hasattr(cv2, "SIFT_create"):
         raise StitchError("OpenCV SIFT support is required for calibration")
     return dict(
@@ -42,6 +42,14 @@ def doctor():
         opencv=cv2.__version__,
         ffmpeg=run([paths["ffmpeg"], "-version"]).decode().splitlines()[0],
         binaries=paths,
+        encoding_support={
+            name: encoder in encoders
+            for name, encoder in [
+                ("hevc10", "libx265"),
+                ("h264", "libx264"),
+                ("prores", "prores_ks"),
+            ]
+        },
     )
 
 
@@ -73,6 +81,13 @@ def parser():
     gpx.add_argument("--gap-seconds", type=float, default=10.0)
     gpx.add_argument("--resume", action="store_true")
     gpx.add_argument("--dry-run", action="store_true")
+    gyro = sub.add_parser(
+        "gyro-calibrate",
+        help="Fit a rigid raw-gyro profile and validate transfer on a second recording",
+    )
+    gyro.add_argument("source")
+    gyro.add_argument("--validation-source", required=True)
+    gyro.add_argument("--output", required=True)
     cal = sub.add_parser(
         "calibrate", help="Fit unit-specific geometry and attitude against a stitched reference"
     )
@@ -105,9 +120,29 @@ def parser():
     stitch.add_argument("--first-frame", required=True, type=int)
     stitch.add_argument("--frames", required=True, type=int)
     stitch.add_argument("--output", required=True)
-    stitch.add_argument("--width", default=2048, type=int)
-    stitch.add_argument("--lens-width", default=1440, type=int)
+    stitch.add_argument(
+        "--width", default=8192, type=int, help="Sphere width; default 8192 (full 8K)"
+    )
+    stitch.add_argument(
+        "--lens-width", default=0, type=int, help="Native lens resolution by default (0)"
+    )
     stitch.add_argument("--threads", default=4, type=int)
+    stitch.add_argument("--backend", choices=["auto", "cpu", "metal"], default="auto")
+    stitch.add_argument(
+        "--gyro-profile", help="Optional per-unit experimental gyro interpolation profile"
+    )
+    stitch.add_argument(
+        "--gyro-anchor-seconds",
+        type=float,
+        default=0.1,
+        help="Experimental gyro anchor spacing, 0.02–1 seconds; used only with --gyro-profile",
+    )
+    stitch.add_argument(
+        "--encoding",
+        choices=["h264", "hevc10", "prores"],
+        default="hevc10",
+        help="8-bit H.264 review, 10-bit HEVC MP4, or 10-bit ProRes 422 HQ MOV",
+    )
     stitch.add_argument(
         "--timeout", default=120, type=float, help="Maximum seconds for a stalled frame/process"
     )
@@ -161,6 +196,10 @@ def main(argv=None):
     try:
         if args.command == "doctor":
             result = doctor()
+        elif args.command == "gyro-calibrate":
+            from .gyro import calibrate
+
+            result = calibrate(args.source, args.validation_source, args.output)
         elif args.command == "gpx":
             from .gpx import export_gpx
 
@@ -241,10 +280,12 @@ def main(argv=None):
                 if not isinstance(raw, dict):
                     raise StitchError("Each batch job must be an object")
                 row = raw.copy()
-                for name in ["source", "calibration", "output"]:
+                for name in ["source", "calibration", "output", "gyro_profile"]:
+                    if name == "gyro_profile" and not row.get(name):
+                        continue
                     path = Path(row[name])
                     row[name] = str(path if path.is_absolute() else manifest_path.parent / path)
-                row["resume"] = args.resume
+                row["resume"] = args.resume or row.get("resume", False)
                 try:
                     jobs.append(Options(**row))
                 except TypeError as exc:
@@ -258,6 +299,7 @@ def main(argv=None):
             inputs = (
                 {Path(j.source).resolve() for j in jobs}
                 | {Path(j.calibration).resolve() for j in jobs}
+                | {Path(j.gyro_profile).resolve() for j in jobs if j.gyro_profile}
                 | {manifest_path}
             )
             if outputs & inputs:

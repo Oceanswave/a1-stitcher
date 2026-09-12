@@ -87,4 +87,6 @@ def test_bad_renderer_readout_rejected():
 @pytest.mark.parametrize("velocity", [[float("nan"), 0, 0], [1, 2]])
 def test_bad_angular_velocity_rejected(velocity):
     with pytest.raises(StitchError, match="velocity"):
-        TiledStitcher([], np.eye(3), 256).stitch([], np.eye(3), velocity)
+        TiledStitcher(lenses_from_metadata(metadata(128), 128), np.eye(3), 256).stitch(
+            [np.zeros((128, 128, 3), np.uint8)] * 2, np.eye(3), velocity
+        )

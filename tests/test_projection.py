@@ -28,7 +28,7 @@ def test_sparse_interpolation_matches_dense_pixel_selection(count):
     rng = np.random.default_rng(99)
     frame = rng.integers(0, 255, (128, 128, 3), dtype=np.uint8)
     u, v = [rng.uniform(-2, 130, (512, 512)).astype(np.float32) for _ in range(2)]
-    reference = cv2.remap(frame, u, v, cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
+    reference = cv2.remap(frame, u, v, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
     selection = rng.choice(u.size, count, replace=False)
     actual = sample_pixels(frame, u.ravel()[selection], v.ravel()[selection])
     assert np.array_equal(actual, reference.reshape(-1, 3)[selection])

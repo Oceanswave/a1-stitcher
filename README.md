@@ -8,18 +8,20 @@ and the timestamped attitude record. It renders a complete 360° sphere, adds
 standard spatial metadata, and verifies the finished video. Once a camera has
 been calibrated, conversion does not require Antigravity Studio.
 
-**Status: alpha, with reference comparisons and color fixes in 0.3.0.** Conversion
-corrects native sensor-row timing, aligns lens overlap using checked optical
-flow, and reduces local lens color differences. Recorded tests show cleaner
-seam detail and substantially lower geometric error during a rapid turn;
-see [rolling-shutter measurements](docs/quality-v0.2.md) and the
-[Studio comparison pass](docs/quality-v0.3.md). The latest pass stops local color
-corrections from painting dark bands into clean sky, skips unused lens samples,
-and adds an experimental moving seam for difficult overlap.
-Camera/propeller removal, severe occlusion, high-frequency vibration and broader
-camera coverage remain open. This is an independent implementation, not an
-official Antigravity or Insta360 product or a reproduction of proprietary
-FlowState/AI stitching.
+**Status: alpha, with native-resolution finishing and Metal acceleration in 0.5.0.**
+Defaults now produce an 8192×4096 sphere from native lens frames, with 16-bit
+image processing and 10-bit HEVC encoding. ProRes 422 HQ is available for finishing.
+An independent Metal renderer accelerates supported Macs; the CPU reference
+remains portable. The converter corrects native sensor-row timing, aligns lens
+overlap with checked optical flow, and confines lens color matching to measured
+areas. See [the 0.5 qualification and performance report](docs/quality-v0.5.md).
+
+Experimental raw-gyro interpolation is available with a per-unit calibration and
+separate-recording transfer validation. Recorded attitude remains the default:
+a higher sensor sample rate alone does not qualify high-frequency image correction.
+Camera/propeller removal, severe occlusion and broader camera coverage remain open.
+This is an independent implementation, not an official Antigravity or Insta360
+product or a reproduction of proprietary FlowState/AI stitching.
 
 ## What conversion preserves and bakes in
 
@@ -29,14 +31,32 @@ original. INSV is already an MP4-family container; this process decodes its two
 fisheye tracks, renders a sphere, and encodes new pixels. Renaming or remuxing the
 original would not perform that work.
 
-| Area | What remains available in the exported MP4 | What is baked in, omitted or limited |
-| --- | --- | --- |
-| View and framing | The complete 360° × 180° monoscopic sphere. Choose yaw, pitch, roll, field of view, aspect ratio, subject tracking and animated camera moves later in a 360-aware editor. | It does not create stereo depth or let you move the physical camera viewpoint. Those are capture limits, not losses caused by export. |
-| Stitch and stabilization | The corrected image, with further global rotation, horizon adjustment and image-based stabilization possible. | Lens dewarping, registration, recorded-attitude stabilization, optional rolling-shutter correction, seam placement, blending and local color matching are baked in. Re-running those operations from the camera data requires the original; the composite cannot reconstruct the separate lens images or overlap. |
-| Detail | Detail supported by the chosen sphere and lens-decode sizes. | Downsampling, interpolation and lossy encoding discard information. Increasing the exported MP4's size afterward cannot recover it. |
-| Color | Ordinary SDR grading in Resolve/Fusion. Current output is 8-bit, 4:2:0, limited-range BT.709 H.264 at CRF 18. | This adds a lossy generation and rounding/resampling to the tested 8-bit SDR sources. Log, HDR and higher-bit-depth inputs are currently rejected, not silently converted. No LUT is applied; this export is not an iLog/D-Log workflow. |
-| Timing and sound | The selected consecutive frames at the original constant frame rate. | Frames outside the selected range are absent; export extra handles if needed. Audio-containing sources are currently refused, so this release does not export sound. |
-| Camera data and provenance | Standard Spherical Video V2 metadata identifies a full monoscopic sphere. A separate receipt records the source range, calibration, processing settings, versions and output checksum. GPS position, UTC time and reported altitude can also be exported as a separate GPX track. | Original telemetry/subtitle tracks, raw IMU/attitude records and the vendor trailer are not copied into the MP4. Flight overlays, camera capture timestamps and original-only Studio controls are not recreated. Neither the receipt nor GPX is a complete metadata archive or a way to reconstruct the original. |
+Importance describes the practical effect on future editing: **High** means an
+important capability requires the originals or the input is unsupported;
+**Medium** means a quality or workflow tradeoff to plan around; **Low** means
+little loss for ordinary editing when the generated files are interpreted correctly.
+Conditional ratings apply only to the stated use. These are workflow judgments,
+not measured image-quality scores.
+
+| Area | What the CLI generates or preserves | Difference from the source archive | Importance and practical effect |
+| --- | --- | --- | --- |
+| Re-stitching and lens geometry | One full equirectangular sphere, rendered from both calibrated lens tracks. | Dewarp, lens registration, seam decisions, flow and local color matching are baked into pixels. Separate fisheye images and overlap cannot be recovered from the composite. | **High** — keep INSV to improve stitching, change calibration, handle parallax differently or use a future vendor algorithm. |
+| Stabilization and rolling shutter | Recorded-attitude stabilization and native-row correction; optional calibrated raw-gyro interpolation. Further global rotation and image-based correction remain possible. | Applied corrections are baked in. Raw IMU, original attitude samples and sensor-row measurements are not embedded in the generated video. The gyro profile in the receipt describes processing; it is not the raw sensor stream. | **High** — re-running sensor-based stabilization or changing row timing requires the original. The exported sphere can still be reframed freely. |
+| View, framing and depth | Complete 360° × 180° monoscopic coverage, with later yaw/pitch/roll, field of view, tracking and animated reframes. | No stereo depth or change of the physical viewpoint is created. This is a capture limit, not something equirectangular export discards. | **Low** for ordinary reframing — the full sphere is retained. An overhead drone cannot become a ground-level camera through reframing. |
+| Spatial detail and compression | Default 8192×4096 output from native-size lenses; optional ProRes 422 HQ or smaller review encodes. | Projection interpolation, seam blending and another lossy encode change pixels. Native-resolution processing avoids the former 1440-pixel lens downsample; an 8K sphere does not imply 8K detail in a narrow reframe. | **Medium** at the new defaults; **High if a small preview is used for finishing**. Render a fresh master from INSV when changing quality settings. |
+| Color precision and chroma | Default 16-bit image processing → 10-bit 4:2:0 HEVC, CRF 12. ProRes 422 HQ offers 10-bit 4:2:2; H.264 review mode uses 8-bit 4:2:0. | The tested original is 8-bit 4:2:0 SDR. Extra processing precision reduces new rounding but does not create captured dynamic range or missing color detail. HEVC and ProRes are still lossy generations. | **Medium** for grading — use HEVC10 or ProRes and avoid repeated intermediate re-encodes. This fixes the old always-8-bit output limitation, not the source's capture limits. |
+| Color space, range and log/HDR | Tagged limited-range SDR BT.709 suitable for SDR Resolve/Fusion grading. No LUT is applied. | Tested sources are full-range SDR BT.709. The range conversion changes signal encoding, not intended display contrast when interpreted correctly. Log/HDR/higher-bit-depth inputs remain rejected. | **Low** for correctly interpreted supported SDR; **High if log/HDR ingest is required** — it is unsupported, not silently flattened. |
+| Frame timing and selected duration | Selected consecutive frames at the original constant frame rate, with exact first-source-frame/count in the receipt. | Unselected frames are absent from this working copy. No retiming or frame interpolation is added by stitching. | **Medium** — include handles; the archive is needed for longer trims or a different event. |
+| Audio | Typical tested A1 inputs have no audio track. | Inputs containing audio are refused; this release has no audio-preserving conversion path. | **High if the input contains sound** — conversion is blocked rather than silently dropping it. Keep any separate sound recordings for the editor. |
+| GPS flight profile | Optional GPX sidecar with recorded position, UTC, reported elevation and speed/course extensions; checksum in the video receipt. Standalone extraction is also available. | GPS is not embedded as the original telemetry track. GPX covers the entire source recording, even for a short video selection. Exact UTC/video alignment and altitude datum remain unqualified; missing/invalid GPS causes the requested export to fail. | **Medium** for editorial maps; **High for precise flight/sensor analysis**. Keep originals and the sidecar; do not treat reported elevation as verified AGL or infer a complete multi-file flight. |
+| Other camera data and Studio controls | Standard sphere/stereo tags plus a receipt containing source identity, frame mapping, profiles, versions, backend and output checksum. | Other telemetry/subtitle tracks, the vendor trailer, raw sensor records and proprietary project/edit controls are not copied. This does not reproduce FlowState/AI stitching, camera/propeller removal or all Studio behaviors. | **High** for future camera-specific reprocessing; **Medium** for everyday editing. Neither receipt nor GPX is a complete metadata archive. |
+| Container and editor interoperability | Standard MP4 (HEVC/H.264) or MOV (ProRes), fast-start layout and Spherical Video V2 metadata. | INSV was already an MP4-family container, but with separate lens tracks and proprietary data. Conversion adds a usable sphere; renaming/remuxing alone cannot. A 360-aware editor is still needed for reframing. | **Low** loss and a substantial interoperability gain. The original and the generated sphere serve different purposes. |
+| CPU versus Metal | The same calibrated projection, seam and row-correction models; chosen backend is recorded. | Small numeric/interpolation differences remain between implementations. GPU speed does not add source detail, restore blur or alter which metadata is preserved. | **Low** on qualified comparisons — choose automatic Metal for speed or CPU for the reference path; neither removes the need for motion review. |
+
+Archive the untouched INSV files, lens calibration and any gyro profile alongside
+output receipts. Keep GPX when exported and preserve source-frame mappings for
+reference media. The generated MP4/MOV and sidecars are working derivatives,
+not a reversible replacement for the source archive.
 
 ### A 4K sphere is not a 4K reframed shot
 
@@ -44,18 +64,19 @@ The sphere's width covers **all 360°**. At the equator, a 90° horizontal view
 spans roughly 512 source columns in a 2048-wide sphere, 1024 in a 4096-wide sphere,
 or 2048 in an 8192-wide sphere. This is an angular-sampling guide, not a guarantee
 of rectilinear output detail: projection, lens quality and sampling vary across
-the image. The default `--width 2048 --lens-width 1440` is for review. For more
-detail, use `--width 4096 --lens-width 3840` on the tested 3840-pixel lens tracks;
-raising sphere width while leaving lens decoding small still limits detail.
-The supported 8192-wide setting has not been qualified as an 8K finishing master.
+the image. The default `--width 8192 --lens-width 0` retains native lens resolution
+and the full supported sphere size. Zero means native; upscaling the decoded
+lenses beyond their source size is refused. For a smaller review use explicit
+`--width 2048 --lens-width 1440 --encoding h264`. Real 8K sequences have passed
+full decode and source-matched comparisons, but that does not qualify every
+shot, camera or scene for finishing.
 
 ### Which limits can improve?
 
-Equirectangular describes the projection, and MP4 the container. Neither requires
-our current 8-bit SDR H.264 settings. Higher-precision processing, a higher-quality
-working codec and richer metadata sidecars are possible future additions, but
-are **not implemented export options in this release**. Higher precision would
-reduce additional processing loss; it would not invent detail or dynamic range
+Equirectangular describes the projection, and MP4/MOV the container. Neither
+requires 8-bit H.264. This release implements higher-precision processing,
+10-bit HEVC and ProRes working codecs, plus optional GPX sidecars. Higher precision
+reduces additional processing loss; it does not invent detail or dynamic range
 missing from an 8-bit recording. Limited-range BT.709 is a signal encoding choice,
 not by itself a narrower display brightness range when interpreted correctly.
 
@@ -72,8 +93,9 @@ for the source records and output metadata.
 
 ## Install
 
-Python 3.12+, macOS or Linux, and FFmpeg/ffprobe with HEVC decoding and libx264
-encoding are required. Install FFmpeg separately using your normal package manager.
+Python 3.12+, macOS or Linux, and FFmpeg/ffprobe are required. The default
+needs HEVC decoding and `libx265`; previews use `libx264` and ProRes uses
+`prores_ks`. Metal additionally needs a usable macOS GPU and Swift command line tools. Install FFmpeg separately using your normal package manager.
 
 ```sh
 # From a checkout
@@ -82,7 +104,7 @@ python3 -m venv .venv
 .venv/bin/a1-stitch doctor
 
 # Or install the tagged GitHub source as an isolated CLI with uv
-uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.4.0'
+uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.5.0'
 a1-stitch doctor
 ```
 
@@ -181,21 +203,34 @@ its own profile.
 a1-stitch stitch recording.insv \
   --calibration camera-calibration.json \
   --first-frame 1200 --frames 360 \
-  --width 2048 --lens-width 1440 \
   --output selected-sphere.mp4
 ```
 
 Frames use the original's frame rate; `--frames` is a count, not an inclusive end.
-The default is a 2K review sphere. Use `--width 4096 --lens-width 3840` to retain
-more source detail, subject to the current CPU cost. The renderer supports up to
-8192 pixels wide using strips to bound intermediate memory. Support for a
-resolution is not a claim of qualified 8K finishing quality.
+Defaults prioritize finishing quality: **8K, native lens frames, 16-bit image
+processing and 10-bit HEVC MP4**. `--backend auto` selects Metal when its compiler
+and GPU preflight succeed, otherwise records a CPU fallback. `--backend metal`
+requires GPU availability; `--backend cpu` selects the portable reference.
+The shader uses the same projection, row timing, flow and blending model with
+small interpolation differences. Auto selection never reduces resolution or
+changes the encoding/seam choice.
 
-The output is 8-bit limited-range SDR BT.709 H.264, with monoscopic Spherical
-Video V2 metadata and fast-start MP4 layout. The tested originals are full-range
-SDR BT.709. Unknown/log/HDR/higher-bit-depth inputs are rejected rather than
-silently flattened. No LUT is applied. A1 audio is not supported; inputs with an
-audio track are refused instead of dropping it.
+```sh
+# ProRes 422 HQ MOV for an editing intermediate
+a1-stitch stitch recording.insv --calibration camera-calibration.json \
+  --first-frame 1200 --frames 360 --encoding prores --output selected-sphere.mov
+
+# Explicit lightweight review, preserving finishing defaults for ordinary jobs
+a1-stitch stitch recording.insv --calibration camera-calibration.json \
+  --first-frame 1200 --frames 90 --width 2048 --lens-width 1440 \
+  --encoding h264 --output preview.mp4
+```
+
+All outputs carry limited-range SDR BT.709 tags, monoscopic Spherical Video V2
+metadata and fast-start layout. The tested originals are 8-bit full-range SDR
+BT.709. Unknown/log/HDR/higher-bit-depth inputs are rejected rather than silently
+flattened. No LUT is applied. Audio-containing sources are refused instead of
+dropping sound. ProRes output needs a `.mov` suffix; HEVC/H.264 require `.mp4`.
 
 The default `--seam flow` uses bidirectional overlap correspondence, rejects
 unreliable/oversized displacement, and matches local color without brightening
@@ -205,7 +240,7 @@ recorded angular motion to correct each native sensor row. Missing readout
 metadata disables that correction; invalid values fail preflight. For controlled
 comparisons or difficult footage, `--seam feather --rolling-shutter off` retains
 the original geometric/blending path. Both choices participate in cache identity.
-These corrections cost additional CPU time and cannot recover occluded detail
+These corrections cannot recover occluded detail
 or remove motion blur. Review the intended shot in motion.
 
 `--seam adaptive` adds experimental seam placement within ±4° of the optical
@@ -214,7 +249,57 @@ path movement to 6°/second. It can avoid some difficult overlaps but does not
 identify or remove a camera body, recover hidden detail, or guarantee improvement.
 The default remains `flow`. Compare both modes on the intended shot.
 
-A matching `.mp4.receipt.json` records source range, camera profile, processing
+### Metal performance
+
+On an Apple M1 Max (32-core GPU, 64 GB), Metal substantially reduces the
+stitching stage's cost while retaining native lens precision:
+
+| Sphere size | CPU | Metal | Stitch-stage speedup |
+| --- | ---: | ---: | ---: |
+| 2048×1024 | 1.050 s/frame | 0.206 s/frame | **5.1×** |
+| 4096×2048 | 4.012 s/frame | 0.290 s/frame | **13.8×** |
+| 8192×4096 | 13.761 s/frame | 0.444 s/frame | **31.0×** |
+
+Same cached 3840-pixel lens pair, 16-bit processing, flow seams, sensor-row
+correction and four CPU threads; median of two warm runs after one warm-up.
+These measurements include seam analysis and transfers, but exclude video decode,
+encode, startup and verification. They are not whole-export speedups.
+
+For an identical three-frame **complete 8K ProRes job**, external wall time was
+**35.73 seconds CPU versus 9.34 seconds Metal—3.8× faster** including startup and
+full verification. A separate 90-frame Metal job took 74.17 seconds. Short jobs
+have substantial fixed overhead; codecs, storage and scene content change total
+time. Real-time 8K export is not claimed.
+
+CPU/Metal differences averaged about 0.12 of an 8-bit channel level in the
+unencoded comparison, with the same geometry and processing model. Use
+`--backend auto` (default), `--backend metal` to require it, or `--backend cpu`
+for the reference path. See [the full methods, pixel differences and motion
+results](docs/quality-v0.5.md) for the measured scope and remaining limitations.
+
+### Optional raw-gyro interpolation
+
+```sh
+a1-stitch gyro-calibrate recording-a.insv --validation-source recording-b.insv \
+  --output gyro-profile.json
+a1-stitch stitch recording-b.insv --calibration camera-calibration.json \
+  --first-frame 1200 --frames 90 --gyro-profile gyro-profile.json \
+  --output gyro-test.mp4
+```
+
+Use different recordings from the same unit. The fit checks three-axis excitation,
+proper rotation, timing, bias, held-out motion blocks and transfer to the second
+recording. Interpolation integrates raw gyro at up to 1 ms steps and matches
+recorded-attitude anchors, bounding drift. `--gyro-anchor-seconds` defaults to
+0.1 (10 Hz anchors) within this optional mode; 0.02 uses every recorded anchor.
+The supported interval is 0.02–1 second. Wider spacing can avoid reintroducing
+recorded-attitude jitter, at the cost of allowing more drift between anchors. The profile remains
+experimental: low-pass agreement and synthetic vibration tests do not establish
+high-frequency sensor-to-image timing. Compare real moving footage before use.
+
+### Receipts and repeated jobs
+
+A matching `.mp4.receipt.json` (or `.mov.receipt.json`) records source range, camera profile, processing
 versions, source identity, output SHA-256, coverage, timing and full-decode
 verification. Original files are never modified. Existing outputs, receipts,
 and symlinks are not overwritten. Failed jobs clean their private work directory;
@@ -269,8 +354,10 @@ prove freshness or certify a whole shot. Existing output directories are refused
       "calibration": "camera-calibration.json",
       "first_frame": 1200,
       "frames": 360,
-      "width": 2048,
-      "lens_width": 1440,
+      "width": 8192,
+      "lens_width": 0,
+      "encoding": "hevc10",
+      "backend": "auto",
       "output": "prepared/shot-01.mp4"
     }
   ]
@@ -317,3 +404,11 @@ Tests generate synthetic camera containers and synthetic imagery at runtime.
 No personal footage, camera profiles, vendor binaries, or proprietary SDK code
 are included. See [format notes](docs/format.md), [qualification](docs/qualification.md),
 [contributing](CONTRIBUTING.md), and [third-party provenance](NOTICE).
+
+### Agent option reference
+
+The discoverable [skill](skills/stitch-a1-video/SKILL.md) includes a maintained
+[option reference](skills/stitch-a1-video/references/options.md) for all encode,
+backend, motion, batch, GPS and verification flags. It also explains optional
+workspace director/Resolve helpers; those helpers are not part of this public
+package and are not required for CLI conversion.
