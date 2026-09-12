@@ -87,7 +87,7 @@ class MetalStitcher(TiledStitcher):
     def __del__(self):
         self.close()
 
-    def stitch(self, frames, world_to_lens, angular_velocity=None):
+    def stitch(self, frames, world_to_lens, angular_velocity=None, row_quaternions=None):
         if not self.handle:
             raise StitchError("Metal renderer is closed")
         if len(frames) != 2 or frames[0].dtype not in (np.uint8, np.uint16):
@@ -107,7 +107,11 @@ class MetalStitcher(TiledStitcher):
             raise StitchError("World rotation must be a finite 3x3 matrix")
         if velocity.shape != (3,) or not np.isfinite(velocity).all():
             raise StitchError("Angular velocity must be a finite three-vector")
+        from .motion import validate_rows
+
+        rows = validate_rows(row_quaternions)
         p = np.zeros(52, np.float32)
+        p[6] = 0 if rows is None else rows.shape[1]
         p[:3] = self.width, frames[0].dtype == np.uint16, self.seam is not None
         p[8:17] = rotation.ravel()
         p[17:26] = self.relative.ravel()
@@ -126,7 +130,7 @@ class MetalStitcher(TiledStitcher):
         analysis = np.zeros(1, np.float32)
         if self.seam is not None:
             s = self.seam
-            s.prepare(frames, angular_velocity, self.readout_seconds)
+            s.prepare(frames, angular_velocity, self.readout_seconds, rows)
             p[3:5] = s.width, s.height
             ratio = (
                 s.log_ratio if s.log_ratio is not None else np.zeros((1, s.width, 3), np.float32)
@@ -136,7 +140,11 @@ class MetalStitcher(TiledStitcher):
             analysis = np.concatenate(
                 [v.ravel() for v in [*s.flows, *s.confidence, ratio, path]]
             ).astype(np.float32)
-        arrays = [np.ascontiguousarray(f) for f in frames] + [p, analysis, np.zeros(1, np.float32)]
+        arrays = [np.ascontiguousarray(f) for f in frames] + [
+            p,
+            analysis,
+            np.zeros(1, np.float32) if rows is None else rows.ravel(),
+        ]
         pointers = (ctypes.c_void_p * 5)(*[v.ctypes.data for v in arrays])
         sizes = (ctypes.c_int64 * 5)(*[v.nbytes for v in arrays])
         output = np.empty((self.height, self.width, 3), frames[0].dtype)

@@ -247,3 +247,23 @@ def test_cli_inspect_error_is_json_and_no_overwrite(synthetic_camera, capsys):
     )
     assert json.loads(capsys.readouterr().err)["status"] == "error"
     assert digest(synthetic_camera["source"]) == before
+
+
+@pytest.mark.integration
+def test_separate_exports_keep_same_heading_for_shared_source_frame(
+    synthetic_camera, tmp_path, monkeypatch
+):
+    import a1_stitcher.render as module
+
+    captured = []
+    original = module.TiledStitcher.stitch
+
+    def capture(self, frames, matrix, *args):
+        captured.append(matrix.copy())
+        return original(self, frames, matrix, *args)
+
+    monkeypatch.setattr(module.TiledStitcher, "stitch", capture)
+    config = options(synthetic_camera, tmp_path / "first.mp4", backend="cpu", seam="feather")
+    stitch(config)
+    stitch(replace(config, output=str(tmp_path / "second.mp4"), first_frame=4, frames=1))
+    np.testing.assert_allclose(captured[2], captured[4], atol=1e-12)

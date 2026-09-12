@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0
+
+- Add experimental 33-sample quaternion rolling-shutter trajectories on CPU
+  and Metal, including overlap analysis. `--rolling-shutter-model trajectory`
+  enables it; mixed real-footage results keep `velocity` as the default.
+- Share an explicit source-frame heading across exports, defaulting to original
+  frame zero. `--heading-reference-frame -1` restores clip-start heading.
+- Decode observed exposure telemetry in `inspect` without changing the fitted
+  frame clock or inventing shutter-edge synchronization.
+- Remove whole-flight column copies from repeated gyro queries and cache bounded
+  anchor corrections. Query partition/order does not change orientation results.
+- Add ground-truth changing-motion, heading continuity, malformed telemetry and
+  expanded CPU/Metal parity coverage. Document Studio observations, measured
+  improvements, mixed results and remaining unsupported functionality.
+
+See [0.6 qualification](docs/quality-v0.6.md).
+
 ## 0.5.0
 
 - Default to 8K/native lens decoding and a 16-bit image pipeline with 10-bit HEVC.

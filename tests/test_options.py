@@ -108,3 +108,50 @@ def test_backend_auto_fallback_is_explicit_and_metal_request_fails(monkeypatch):
     with pytest.raises(StitchError, match="Backend"):
         metal.select_backend("unknown")
     assert metal.select_backend("cpu")["name"] == "cpu"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"heading_reference_frame": -2},
+        {"heading_reference_frame": True},
+        {"heading_reference_frame": 1.5},
+        {"heading_reference_frame": 10000},
+        {"rolling_shutter_model": "guess"},
+    ],
+)
+def test_motion_options_reject_invalid_values_before_writing(synthetic_camera, tmp_path, changes):
+    values = dict(
+        source=str(synthetic_camera["source"]),
+        calibration=str(synthetic_camera["calibration"]),
+        output=str(tmp_path / "new" / "m.mp4"),
+        first_frame=2,
+        frames=3,
+        backend="cpu",
+    )
+    with pytest.raises(StitchError):
+        plan(Options(**(values | changes)))
+    assert not (tmp_path / "new").exists()
+
+
+def test_motion_recipe_captures_fixed_heading_and_algorithm(synthetic_camera, tmp_path):
+    from dataclasses import replace
+
+    a = Options(
+        str(synthetic_camera["source"]),
+        str(synthetic_camera["calibration"]),
+        str(tmp_path / "m.mp4"),
+        2,
+        3,
+        backend="cpu",
+    )
+    b = replace(a, first_frame=4)
+    assert plan(a)["recipe"]["heading_reference"] == plan(b)["recipe"]["heading_reference"]
+    assert (
+        plan(replace(b, heading_reference_frame=-1))["recipe"]["heading_reference"]["source_frame"]
+        == 4
+    )
+    assert (
+        plan(a)["recipe_sha256"]
+        != plan(replace(a, rolling_shutter_model="trajectory"))["recipe_sha256"]
+    )

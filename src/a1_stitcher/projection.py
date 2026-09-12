@@ -121,13 +121,20 @@ def project(rays, lens):
     )
 
 
-def project_scan(rays, lens, angular_velocity=None, readout_seconds=0):
+def project_scan(rays, lens, angular_velocity=None, readout_seconds=0, row_quaternions=None):
     """Invert native top-to-bottom sensor timing with two row-map updates.
 
     Velocity is expressed in this lens's coordinates. The native sensor row,
     not the equirectangular output row, determines when a pixel was captured.
     """
     u, v, valid = project(rays, lens)
+    if row_quaternions is not None and readout_seconds:
+        from .motion import rotate_rows
+
+        for _ in range(2):
+            corrected = rotate_rows(rays, v / (lens["width"] - 1), row_quaternions)
+            u, v, valid = project(corrected, lens)
+        return u, v, valid
     if angular_velocity is None or readout_seconds == 0:
         return u, v, valid
     velocity = np.asarray(angular_velocity, np.float32)
@@ -292,7 +299,7 @@ class TiledStitcher:
         longitude = ((np.arange(width, dtype=np.float32) + 0.5) / width - 0.5) * (2 * np.pi)
         self.sinlon, self.coslon = np.sin(longitude), np.cos(longitude)
 
-    def stitch(self, frames, world_to_lens, angular_velocity=None):
+    def stitch(self, frames, world_to_lens, angular_velocity=None, row_quaternions=None):
         if len(frames) != 2 or frames[0].dtype not in (np.uint8, np.uint16):
             raise StitchError("Expected two uint8 or uint16 lens images")
         if any(
@@ -307,8 +314,11 @@ class TiledStitcher:
             angular_velocity = np.asarray(angular_velocity, np.float32)
             if angular_velocity.shape != (3,) or not np.isfinite(angular_velocity).all():
                 raise StitchError("Angular velocity must be a finite three-vector")
+        from .motion import validate_rows
+
+        rows = validate_rows(row_quaternions)
         if self.seam is not None:
-            self.seam.prepare(frames, angular_velocity, self.readout_seconds)
+            self.seam.prepare(frames, angular_velocity, self.readout_seconds, rows)
         output = np.empty((self.height, self.width, 3), dtype)
         missing = 0
         for top in range(0, self.height, self.strip_height):
@@ -342,7 +352,13 @@ class TiledStitcher:
                 active = weight > 0
                 if not active.any():
                     continue
-                u, v, valid = project_scan(local[active], lens, velocity, self.readout_seconds)
+                u, v, valid = project_scan(
+                    local[active],
+                    lens,
+                    velocity,
+                    self.readout_seconds,
+                    None if rows is None else rows[i],
+                )
                 weight = weight[active] * valid
                 warped = sample_pixels(frames[i], u, v)
                 if self.seam is not None:

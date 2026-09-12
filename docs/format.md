@@ -31,8 +31,11 @@ indexed records still require consistent trailing headers.
   timebase. Only selected field numbers are interpreted. Serial/GPS fields are
   not emitted by the inspector.
 - **3:** observed raw IMU samples, `<Q6H`, 20 bytes each. Values are unsigned with
-  an offset of 32768; ranges are supplied by metadata. Used for inspection, not
-  high-rate stabilization in this release.
+  an offset of 32768; ranges are supplied by metadata. Optional per-unit gyro
+  calibration/interpolation uses this stream; image timing remains experimental.
+- **4:** observed exposure samples, `<Qd`, 16 bytes each: timestamp in microseconds
+  and exposure duration in seconds. `inspect` reports statistics without changing
+  the calibrated frame clock. See the exposure notes below.
 - **37:** observed attitude samples, `<Q7f`, 36 bytes each. Timestamp in microseconds,
   an XYZW unit quaternion, and three uninterpreted floats. The approximately
   50 Hz attitude interpretation is supported by sampled image comparisons.
@@ -41,10 +44,30 @@ Time is relative to the first video timestamp in metadata. Gyro timing,
 rolling-shutter readout and a reference-fitted attitude offset are different
 quantities; do not add them indiscriminately. The current renderer uses its
 profile's measured attitude offset. With `--rolling-shutter auto`, it also uses
-embedded sensor readout duration and the recorded attitude trajectory to correct
-native sensor-row timing. This does not use the raw IMU record for high-rate
-stabilization. Missing readout metadata disables row correction; invalid values
+embedded sensor readout duration and a locally constant angular velocity by default.
+The optional `--rolling-shutter-model trajectory` instead uses 33 uniformly spaced
+quaternion samples from the selected orientation trajectory. Each lens uses its own native row; the
+inverse center-to-capture rotation is evaluated with two row-map updates.
+Quaternion signs are made continuous before normalized linear interpolation.
+The default uses recorded attitude; `--gyro-profile` supplies experimental
+anchored raw-gyro interpolation. `--rolling-shutter-model velocity` retains the
+older constant-rate approximation. Missing readout metadata disables row correction; invalid values
 fail preflight.
+
+## Exposure record 4
+
+The observed A1 encoding-0 layout consists of little-endian uint64 timestamps and
+float64 shutter durations. Two recordings contain approximately one sample per
+video frame, including samples before video frame zero. Inspection validates
+record boundaries, increasing timestamps, finite positive durations and cadence.
+Reports include min/median/p95/max duration, gaps, and half the duration range.
+
+Exposure time and sensor readout are different quantities. A duration-dependent
+midpoint adjustment is relevant to gyro alignment, but the existing lens/mount
+profile already fits a constant video-to-attitude offset. Exposure start/end
+semantics and per-frame image alignment have not been qualified. Inspection
+therefore reports `applied_to_frame_clock: false`; no extra half-exposure offset
+is silently added. Timestamps are relative to the first video timestamp, not UTC.
 
 ## GPS record 7
 

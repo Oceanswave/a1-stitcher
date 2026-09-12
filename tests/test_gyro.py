@@ -171,3 +171,17 @@ def test_anchor_spacing_does_not_reintroduce_recorded_jitter(tmp_path):
     for bad in [0, 1.1, float("nan"), True]:
         with pytest.raises(StitchError, match="anchor interval"):
             trajectory(sensor, path, bad)
+
+
+def test_query_results_do_not_depend_on_cache_or_batch_partition():
+    t = np.arange(0, 2.001, 0.001)
+    anchors = np.arange(0, 2.001, 0.1)
+    poses = Rotation.from_euler("xyz", np.column_stack([anchors * 0.2, anchors * 0.1, anchors]))
+    values = np.column_stack([t * 0.3, 0.2 * np.sin(t * 35), np.ones(len(t)) * 1.1])
+    query = np.array([0.79, 0.02, 0.7, 1.73, 0.02, 0.91, 0.24])
+    batched = AnchoredGyro(anchors, poses, t, values, profile())
+    expected = batched(query)
+    partitioned = AnchoredGyro(anchors, poses, t, values, profile())
+    actual = Rotation.concatenate([partitioned([q]) for q in query])
+    np.testing.assert_allclose((expected.inv() * actual).magnitude(), 0, atol=1e-12)
+    np.testing.assert_allclose((expected.inv() * batched(query)).magnitude(), 0, atol=1e-12)

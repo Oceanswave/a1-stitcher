@@ -1,6 +1,6 @@
 # A1 CLI options and preparation handoff
 
-The 0.5 CLI command line and JSON batch jobs share `Options` fields. Check installed
+The 0.6 CLI command line and JSON batch jobs share `Options` fields. Check installed
 help/version before using this reference. No vendor runtime is required after
 calibration; Metal needs macOS, a usable GPU and Swift command line tools.
 
@@ -24,6 +24,9 @@ paths resolve against the manifest directory. Outputs and receipts never overwri
 | `--seam adaptive` | — | Experimental moving overlap path with temporal constraints. |
 | `--seam feather` | — | Legacy angular feather for comparisons or unsuitable flow. |
 | `--rolling-shutter auto` | `auto` | Use embedded readout duration and native sensor-row timing. |
+| `--rolling-shutter-model trajectory` | — | Experimental: use 33 orientation samples across readout, transformed separately for each native lens. |
+| `--rolling-shutter-model velocity` | `velocity` | Qualified average angular velocity; retained because trajectory results are mixed on real footage. |
+| `--heading-reference-frame N` | `0` | Original frame defining fixed sphere yaw for every export from this source; `-1` uses the selected start. Must be covered by attitude/gyro and video. |
 | `--rolling-shutter off` | — | Disable row correction for a controlled comparison. |
 | `--gyro-profile PATH` | absent | Experimental anchored raw-gyro interpolation; requires a matching per-unit profile. |
 | `--gyro-anchor-seconds N` | `0.1` | With a gyro profile, use recorded-attitude anchors spaced by 0.02–1 second; 0.02 retains all recorded anchors. |
@@ -42,7 +45,7 @@ or vendor model. Low-resolution flow analysis stays on CPU; final sampling retai
 original lens precision. CPU and GPU have small interpolation differences, so the
 actual backend participates in receipt identity.
 
-Measured on an M1 Max with native 3840-pixel lenses and 16-bit flow processing:
+Measured with the 0.5 average-rate row model on an M1 Max with native 3840-pixel lenses and 16-bit flow processing:
 Metal was 5.1×/13.8×/31.0× faster for the 2K/4K/8K stitching stage. A separate
 three-frame full 8K ProRes job was 3.8× faster including startup and verification.
 These are bounded measurements, not guarantees or a real-time claim.
@@ -102,7 +105,8 @@ Keep recorded attitude as the default until matched moving imagery supports a ch
 ## GPS, inspection and verification
 
 - `inspect SOURCE [--output PATH] [--redact-path]`: bounded metadata inventory;
-  path redaction is not location anonymization of separately exported GPS.
+  includes observed record-4 exposure duration/timing statistics, without applying
+  them to the fitted frame clock. Path redaction is not location anonymization of separately exported GPS.
 - `gpx SOURCE --output PATH [--gap-seconds 10] [--dry-run] [--resume]`: GPX 1.1
   with UTC, latitude/longitude, reported elevation, and optional speed/course
   extensions. Missing/void GPS does not yield an invented route.
@@ -137,6 +141,8 @@ Keep recorded attitude as the default until matched moving imagery supports a ch
     "backend": "auto",
     "seam": "flow",
     "rolling_shutter": "auto",
+    "rolling_shutter_model": "velocity",
+    "heading_reference_frame": 0,
     "export_gpx": true
   }]
 }

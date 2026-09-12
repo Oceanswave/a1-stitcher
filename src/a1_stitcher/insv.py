@@ -218,6 +218,10 @@ class InsvReader:
                 mean_rate_hz=(len(timestamps) - 1) * 1e6 / (timestamps[-1] - timestamps[0]),
                 time_convention="raw timestamps minus first video frame timestamp; no undocumented offset applied",
             )
+        if 4 in self.records and metadata.get("camera_type") == "Antigravity A1":
+            from .exposure import exposure_summary
+
+            result["exposure"] = exposure_summary(self)
         if 37 in self.records:
             payload = self.payload(37)
             if payload and len(payload) % 36 == 0:

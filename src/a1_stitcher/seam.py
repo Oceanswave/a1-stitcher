@@ -154,19 +154,22 @@ class OverlapSeam:
             axis=-1,
         ).astype(np.float32)
 
-    def prepare(self, frames, angular_velocity=None, readout_seconds=0):
+    def prepare(self, frames, angular_velocity=None, readout_seconds=0, row_quaternions=None):
         # Flow/CLAHE analyze 8-bit proxies; final remapping retains the original
         # 16-bit signal when a finishing encode is requested.
         if frames[0].dtype == np.uint16:
             frames = [np.rint(frame.astype(np.float32) / 257).astype(np.uint8) for frame in frames]
         maps = self.maps
-        if angular_velocity is not None and readout_seconds:
+        if (angular_velocity is not None or row_quaternions is not None) and readout_seconds:
             maps = [
                 project_scan(
                     self.rays if i == 0 else self.rays @ self.relative,
                     lens,
-                    angular_velocity if i == 0 else np.asarray(angular_velocity) @ self.relative,
+                    angular_velocity
+                    if i == 0 or angular_velocity is None
+                    else np.asarray(angular_velocity) @ self.relative,
                     readout_seconds,
+                    None if row_quaternions is None else row_quaternions[i],
                 )
                 for i, lens in enumerate(self.lenses)
             ]
