@@ -11,6 +11,10 @@
 - Prevent cubic interpolation from mixing black border pixels into valid lens data.
 - Extend codec verification, batch gyro-profile path handling, synthetic tests
   and the discoverable skill's complete options/reference documentation.
+- Write explicit limited-range BT.709 ProRes container metadata for FFmpeg 6.1
+  compatibility; reject missing or conflicting color descriptions.
+- Run Python 3.12/3.13 CI on the dedicated Rockybot Linux runner, retaining
+  separate full Metal testing on macOS before release.
 - Preserve original files, no-overwrite outputs, GPX sidecars, calibration boundaries
   and the distinction between technical verification and perceptual review.
 

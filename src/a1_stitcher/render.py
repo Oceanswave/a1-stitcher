@@ -409,7 +409,7 @@ def stitch(options, progress=None, dry_run=False):
                             p.read_text(errors="replace")[-1500:] for p in work.glob("*.log")
                         )
                         raise ProcessError(f"Video process exited {code}: {errors}")
-            tag_equirectangular(untagged)
+            tag_equirectangular(untagged, prores_video_range=encoding["name"] == "prores")
             make_faststart(untagged, ready)
             expected = dict(
                 width=options.width,

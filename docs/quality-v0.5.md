@@ -13,6 +13,12 @@ The old 8-bit H.264 path remains an explicit review option. This reduces new
 processing loss on the tested 8-bit SDR capture; it does not add captured dynamic
 range or implement log/HDR ingest.
 
+ProRes MOV exports include an explicit limited-range BT.709 `nclx` color box.
+FFmpeg 6.1 leaves the range unspecified when reading the older MOV `nclc` box,
+even when the encoder was given limited-range settings. The CLI makes that range
+explicit without changing encoded pixels and rejects conflicting descriptions.
+The same full encode/decode tests cover Linux FFmpeg 6.1 and macOS FFmpeg 8.1.
+
 Cubic interpolation now replicates edge pixels instead of mixing black padding
 into valid lens samples. Synthetic sub-8-bit signals survive both seam analysis
 and final remapping; flow still uses a small 8-bit analysis image while final

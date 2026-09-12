@@ -149,6 +149,11 @@ signal for final remapping/blending before a 10-bit encode. The H.264 review pat
 remains 8-bit. Input acceptance still covers only tested 8-bit full-range SDR
 BT.709 lens tracks; this does not establish log/HDR support.
 
+Owned ProRes exports convert the encoder's BT.709 `nclc` description to `nclx`
+with a zero full-range flag, making the pipeline's limited-range output explicit
+to older FFmpeg probes as well. This updates the container only; pixel data is
+unchanged. Missing, duplicate or conflicting color descriptions fail closed.
+
 The optional gyro path decodes the observed 20-byte binary record-3 samples
 (timestamp, three unsigned accelerometer channels, three unsigned gyro channels),
 using the embedded gyro range and offset-binary interpretation. Per-unit rigid

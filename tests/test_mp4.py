@@ -82,3 +82,40 @@ def test_chunk_offsets_promote_to_co64_without_overflow():
     assert b"stco" not in data
     index = data.index(b"co64")
     assert struct.unpack_from(">Q", data, index + 12)[0] == 0xFFFFFFF0 + 100
+
+
+def prores_moov(colors):
+    sample = bytes(78) + b"".join(box(b"colr", color) for color in colors)
+    result = box(b"stsd", bytes(4) + struct.pack(">I", 1) + box(b"apch", sample))
+    for kind in [b"stbl", b"minf", b"mdia", b"trak"]:
+        result = box(kind, result)
+    return result
+
+
+@pytest.mark.parametrize(
+    "color", [b"nclc\x00\x01\x00\x01\x00\x01", b"nclx\x00\x01\x00\x01\x00\x01\x00"]
+)
+def test_owned_prores_range_is_explicit_without_changing_media(tmp_path, color):
+    path = tmp_path / "own.mov"
+    prefix = box(b"ftyp", b"qt  ") + box(b"mdat", b"owned-prores-pixels")
+    path.write_bytes(prefix + box(b"moov", prores_moov([color])))
+    tag_equirectangular(path, prores_video_range=True)
+    data = path.read_bytes()
+    assert data.startswith(prefix)
+    assert box(b"colr", b"nclx\x00\x01\x00\x01\x00\x01\x00") in data
+    assert data.count(b"colr") == 1
+
+
+@pytest.mark.parametrize(
+    "colors",
+    [
+        [],
+        [b"nclc"],
+        [b"nclc\x00\x09\x00\x10\x00\x09"],
+        [b"nclx\x00\x01\x00\x01\x00\x01\x80"],
+        [b"nclc\x00\x01\x00\x01\x00\x01"] * 2,
+    ],
+)
+def test_prores_range_tagging_rejects_missing_or_conflicting_color(colors):
+    with pytest.raises(ValueError, match="color metadata"):
+        inject_moov(prores_moov(colors), prores_video_range=True)

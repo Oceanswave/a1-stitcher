@@ -24,6 +24,10 @@ them to a repository branch before CI execution. The repository also requires
 workflow approval for all outside contributors. Do not use `pull_request_target`
 to execute unreviewed fork code on the runner.
 
+The Linux FFmpeg 6.1 check covers a ProRes compatibility case: MOV `nclc` does not
+signal range, so the CLI writes explicit limited-range BT.709 `nclx` metadata for
+its owned ProRes exports. Conflicting color tags still fail verification.
+
 Default to the best qualified quality settings; keep unqualified algorithms optional. Preserve originals and complete outputs;
 keep partial work isolated. Do not add another camera profile by copying A1 or X5
 constants. Unknown encodings should fail with an actionable error.

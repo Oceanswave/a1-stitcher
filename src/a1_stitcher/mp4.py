@@ -31,7 +31,7 @@ def spherical_boxes():
     return stereo + box(b"sv3d", header + projection)
 
 
-def inject_moov(data):
+def inject_moov(data, *, prores_video_range=False):
     count = 0
 
     def visit(kind, payload):
@@ -47,6 +47,21 @@ def inject_moov(data):
                     existing = list(children(entry, 78))
                     if any(k in [b"sv3d", b"st3d"] for k, _ in existing):
                         raise ValueError("Spherical metadata already present")
+                    if prores_video_range and entry_kind in [b"apch", b"apcn"]:
+                        # MOV's nclc has no range bit; older probes leave ProRes
+                        # range unknown. Our encoder explicitly produces limited
+                        # BT.709, so describe that in nclx without changing pixels.
+                        bt709 = struct.pack(">HHH", 1, 1, 1)
+                        colors = [p for k, p in existing if k == b"colr"]
+                        if len(colors) != 1 or colors[0] not in [
+                            b"nclc" + bt709,
+                            b"nclx" + bt709 + b"\x00",
+                        ]:
+                            raise ValueError("Expected unambiguous BT.709 ProRes color metadata")
+                        existing = [
+                            (k, b"nclx" + bt709 + b"\x00" if k == b"colr" else p)
+                            for k, p in existing
+                        ]
                     # Required codec boxes precede optional spatial metadata.
                     required = [(k, p) for k, p in existing if k not in [b"pasp", b"clap"]]
                     optional = [(k, p) for k, p in existing if k in [b"pasp", b"clap"]]
@@ -67,7 +82,7 @@ def inject_moov(data):
     return output
 
 
-def tag_equirectangular(path):
+def tag_equirectangular(path, *, prores_video_range=False):
     with open(path, "r+b") as stream:
         stream.seek(0, 2)
         length = stream.tell()
@@ -92,7 +107,9 @@ def tag_equirectangular(path):
                     raise ValueError("Only non-fragmented moov-last MP4 is supported")
                 if size > 64 * 1024 * 1024:
                     raise ValueError("Oversized MP4 metadata")
-                result = inject_moov(stream.read(size - header_bytes))
+                result = inject_moov(
+                    stream.read(size - header_bytes), prores_video_range=prores_video_range
+                )
                 stream.seek(pos)
                 stream.write(result)
                 stream.truncate()
