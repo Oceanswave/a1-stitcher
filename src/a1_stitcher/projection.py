@@ -136,14 +136,27 @@ def project_scan(rays, lens, angular_velocity=None, readout_seconds=0):
         return u, v, valid
     axis = velocity / speed
     cross = np.cross(axis, rays)
-    axial = np.sum(rays * axis, axis=-1)[:, :, None] * axis
+    axial = np.sum(rays * axis, axis=-1)[..., None] * axis
     for _ in range(2):
         dt = (np.clip(v / (lens["width"] - 1), 0, 1) - 0.5) * readout_seconds
         angle = -speed * dt
-        cosine, sine = np.cos(angle)[:, :, None], np.sin(angle)[:, :, None]
+        cosine, sine = np.cos(angle)[..., None], np.sin(angle)[..., None]
         corrected = rays * cosine + cross * sine + axial * (1 - cosine)
         u, v, valid = project(corrected, lens)
     return u, v, valid
+
+
+def sample_pixels(frame, u, v):
+    """Sample a compact list without exceeding OpenCV's remap dimension limit."""
+    count = u.size
+    if not count:
+        return np.empty((0, 3), frame.dtype)
+    columns = min(count, 4096)
+    padding = (-count) % columns
+    maps = [np.pad(m.ravel(), (0, padding)).reshape(-1, columns) for m in (u, v)]
+    return cv2.remap(frame, *maps, cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT).reshape(-1, 3)[
+        :count
+    ]
 
 
 def rotation_fit(source, target):
@@ -269,13 +282,13 @@ class TiledStitcher:
         if not np.isfinite(readout_seconds) or not 0 <= readout_seconds <= 0.1:
             raise StitchError("Invalid sensor readout duration")
         self.readout_seconds = readout_seconds
-        if seam not in ["feather", "flow"]:
-            raise StitchError("Seam must be flow or feather")
+        if seam not in ["feather", "flow", "adaptive"]:
+            raise StitchError("Seam must be flow, adaptive or feather")
         self.seam = None
-        if seam == "flow":
+        if seam in ["flow", "adaptive"]:
             from .seam import OverlapSeam
 
-            self.seam = OverlapSeam(lenses, self.relative, width, fps)
+            self.seam = OverlapSeam(lenses, self.relative, width, fps, adaptive=seam == "adaptive")
         longitude = ((np.arange(width, dtype=np.float32) + 0.5) / width - 0.5) * (2 * np.pi)
         self.sinlon, self.coslon = np.sin(longitude), np.cos(longitude)
 
@@ -310,17 +323,23 @@ class TiledStitcher:
                 velocity = angular_velocity
                 if i == 1 and velocity is not None:
                     velocity = np.asarray(velocity) @ self.relative
-                u, v, valid = project_scan(local, lens, velocity, self.readout_seconds)
                 weight = (
-                    np.clip((local[:, :, 2] + 0.1) / 0.2, 0, 1)
+                    np.clip((local[..., 2] + 0.1) / 0.2, 0, 1)
                     if self.seam is None
                     else (alpha if i == 0 else 1 - alpha)
-                ) * valid
-                warped = cv2.remap(frames[i], u, v, cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
+                )
+                # An unused hemisphere cannot contribute to this output pixel.
+                # Do not perform its expensive row-map iterations or interpolation.
+                active = weight > 0
+                if not active.any():
+                    continue
+                u, v, valid = project_scan(local[active], lens, velocity, self.readout_seconds)
+                weight = weight[active] * valid
+                warped = sample_pixels(frames[i], u, v)
                 if self.seam is not None:
-                    warped = warped * gains[i]
-                result += warped * weight[:, :, None]
-                total += weight
+                    warped = warped * gains[i][active]
+                result[active] += warped * weight[:, None]
+                total[active] += weight
             covered = total > 1e-5
             missing += int((~covered).sum())
             result /= np.maximum(total[:, :, None], 1e-5)

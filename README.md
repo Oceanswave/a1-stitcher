@@ -8,11 +8,14 @@ and the timestamped attitude record. It renders a complete 360° sphere, adds
 standard spatial metadata, and verifies the finished video. Once a camera has
 been calibrated, conversion does not require Antigravity Studio.
 
-**Status: alpha, with a new image-quality pipeline in 0.2.0.** Conversion now
+**Status: alpha, with reference comparisons and color fixes in 0.3.0.** Conversion
 corrects native sensor-row timing, aligns lens overlap using checked optical
 flow, and reduces local lens color differences. Recorded tests show cleaner
 seam detail and substantially lower geometric error during a rapid turn;
-see [measurements and limits](docs/quality-v0.2.md).
+see [rolling-shutter measurements](docs/quality-v0.2.md) and the
+[Studio comparison pass](docs/quality-v0.3.md). The latest pass stops local color
+corrections from painting dark bands into clean sky, skips unused lens samples,
+and adds an experimental moving seam for difficult overlap.
 Camera/propeller removal, severe occlusion, high-frequency vibration and broader
 camera coverage remain open. This is an independent implementation, not an
 official Antigravity or Insta360 product or a reproduction of proprietary
@@ -30,7 +33,7 @@ python3 -m venv .venv
 .venv/bin/a1-stitch doctor
 
 # Or install the tagged GitHub source as an isolated CLI with uv
-uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.2.0'
+uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.3.0'
 a1-stitch doctor
 ```
 
@@ -103,6 +106,12 @@ the original geometric/blending path. Both choices participate in cache identity
 These corrections cost additional CPU time and cannot recover occluded detail
 or remove motion blur. Review the intended shot in motion.
 
+`--seam adaptive` adds experimental seam placement within ±4° of the optical
+seam. It seeks a closed path through areas of better lens agreement and limits
+path movement to 6°/second. It can avoid some difficult overlaps but does not
+identify or remove a camera body, recover hidden detail, or guarantee improvement.
+The default remains `flow`. Compare both modes on the intended shot.
+
 A matching `.mp4.receipt.json` records source range, camera profile, processing
 versions, source identity, output SHA-256, coverage, timing and full-decode
 verification. Original files are never modified. Existing outputs, receipts,
@@ -126,6 +135,26 @@ Resume is **completed-job reuse**, not continuation of a partially encoded file.
 Source cache identity uses file stat plus first/last MiB hashes; it is not a full
 cryptographic hash of the original recording. Changed source stat, edge content,
 calibration, media settings, package version or FFmpeg version invalidates reuse.
+
+### Compare with a Studio export
+
+Use a full equirectangular reference with known source-frame mapping. Both inputs
+must have the same constant frame rate. If candidate frame zero corresponds to
+reference frame 570, for example:
+
+```sh
+a1-stitch compare selected-sphere.mp4 --reference studio-sphere.mp4 \
+  --reference-first-frame 570 --samples 0,15,30,60,89 \
+  --output-dir new-comparison
+```
+
+Open `new-comparison/review.html`. It shows the reference, the candidate after one
+global orientation alignment, and its original orientation. The JSON report
+preserves frame mapping, input identities, fitted rotations and matched-inlier
+angular errors. No local warp or color fit is applied. Per-frame alignment can
+hide stabilization differences; inspect the original view, rotation changes and
+full motion as well. Low inlier error does not score unmatched/occluded pixels,
+prove freshness or certify a whole shot. Existing output directories are refused.
 
 ### Batch and agent use
 

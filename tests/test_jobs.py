@@ -85,6 +85,47 @@ def test_dry_run_has_no_filesystem_side_effects(synthetic_camera, tmp_path):
     assert not target.parent.exists()
 
 
+@pytest.mark.integration
+def test_adaptive_seam_complete_job_and_cache_identity(synthetic_camera, tmp_path):
+    target = tmp_path / "adaptive.mp4"
+    settings = options(synthetic_camera, target, seam="adaptive")
+    result = stitch(settings)
+    receipt = json.loads(Path(result["receipt"]).read_text())
+    assert result["verification"]["full_decode"]
+    assert receipt["seam_diagnostics"]["adaptive_path"] is not None
+    assert plan(settings)["recipe_sha256"] != plan(replace(settings, seam="flow"))["recipe_sha256"]
+    assert stitch(replace(settings, resume=True))["status"] == "reused"
+
+
+@pytest.mark.integration
+def test_single_reader_pairs_the_requested_original_lens_frames(
+    synthetic_camera, tmp_path, monkeypatch
+):
+    import a1_stitcher.render as module
+    from a1_stitcher.projection import decode_frame
+
+    original_read = module.read_exact
+    captured = []
+
+    def capture(stream, size, timeout):
+        data = original_read(stream, size, timeout)
+        captured.append(np.frombuffer(data, np.uint8).reshape(128, 256, 3))
+        return data
+
+    monkeypatch.setattr(module, "read_exact", capture)
+    stitch(options(synthetic_camera, tmp_path / "paired.mp4"))
+    for ordinal in [0, 3]:
+        for lens in range(2):
+            expected = decode_frame(
+                synthetic_camera["source"],
+                (2 + ordinal) / synthetic_camera["fps"],
+                stream=lens,
+                width=128,
+            )
+            actual = captured[ordinal][:, lens * 128 : (lens + 1) * 128]
+            assert np.array_equal(actual, expected)
+
+
 @pytest.mark.parametrize(
     "changes",
     [

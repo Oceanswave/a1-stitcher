@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0
+
+Fix false color bands revealed by matching Studio reference frames: stop
+extrapolating overlap color correction into the wider sphere and across large
+unsupported arcs. Skip projection and interpolation for lens samples with zero
+output weight. Add experimental `--seam adaptive` with closed periodic seam
+selection, bounded placement and limited temporal movement; keep `flow` default.
+Decode both lens tracks through one reader, validate matching track start times,
+and test exact original-frame pairing.
+
+Add `a1-stitch compare` for explicitly mapped reference frames, full-sphere PNGs,
+global alignment, geometry diagnostics and a local review page. Preserve the
+unaligned candidate and report alignment changes so a per-frame fit cannot be
+mistaken for stabilization acceptance. Add synthetic regression, correspondence,
+closed-path optimality, motion-bound and complete CLI job tests.
+
 ## 0.2.0
 
 Reduce seam ghosting through confidence-gated bidirectional optical flow and a

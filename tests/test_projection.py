@@ -14,9 +14,36 @@ from a1_stitcher.projection import (
     match_lenses,
     orientation37,
     project,
+    project_scan,
     robust_rotation,
+    sample_pixels,
     unproject,
 )
+
+
+@pytest.mark.parametrize("count", [1, 4096, 4097, 65539, 262144])
+def test_sparse_interpolation_matches_dense_pixel_selection(count):
+    import cv2
+
+    rng = np.random.default_rng(99)
+    frame = rng.integers(0, 255, (128, 128, 3), dtype=np.uint8)
+    u, v = [rng.uniform(-2, 130, (512, 512)).astype(np.float32) for _ in range(2)]
+    reference = cv2.remap(frame, u, v, cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
+    selection = rng.choice(u.size, count, replace=False)
+    actual = sample_pixels(frame, u.ravel()[selection], v.ravel()[selection])
+    assert np.array_equal(actual, reference.reshape(-1, 3)[selection])
+
+
+def test_sparse_sensor_row_projection_matches_full_grid():
+    rng = np.random.default_rng(41)
+    rays = rng.normal(size=(31, 83, 3)).astype(np.float32)
+    rays /= np.linalg.norm(rays, axis=-1, keepdims=True)
+    lens = lenses_from_metadata(metadata(), 512)[0]
+    dense = project_scan(rays, lens, [3, -2, 1], 0.021)
+    selection = rng.random(rays.shape[:2]) > 0.5
+    sparse = project_scan(rays[selection], lens, [3, -2, 1], 0.021)
+    for a, b in zip(dense, sparse):
+        assert np.array_equal(a[selection], b)
 
 
 def test_mei_roundtrip_and_principal_point_mapping():

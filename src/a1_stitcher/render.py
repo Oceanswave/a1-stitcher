@@ -81,8 +81,8 @@ def plan(options):
         raise StitchError("Invalid thread count or timeout")
     if not isinstance(options.no_stabilization, bool):
         raise StitchError("no_stabilization must be boolean")
-    if options.seam not in ["flow", "feather"]:
-        raise StitchError("Seam must be flow or feather")
+    if options.seam not in ["flow", "adaptive", "feather"]:
+        raise StitchError("Seam must be flow, adaptive or feather")
     source = Path(options.source).resolve(strict=True)
     calibration_path = Path(options.calibration).resolve(strict=True)
     output = Path(options.output).absolute()
@@ -130,7 +130,9 @@ def plan(options):
         calibration=calibration,
         settings=settings,
         profile=profile,
-        seam="bidirectional-flow-local-balance-v2"
+        seam="periodic-adaptive-flow-local-balance-v3"
+        if options.seam == "adaptive"
+        else "bidirectional-flow-local-balance-v3"
         if options.seam == "flow"
         else "angular-feather-v1",
         rolling_shutter=dict(
@@ -231,33 +233,45 @@ def stitch(options, progress=None, dry_run=False):
             ready = work / "ready.mp4"
             missing_max = 0.0
             with ExitStack() as stack:
-                for index in range(2):
-                    log = stack.enter_context((work / f"decode-{index}.log").open("wb"))
-                    command = [
-                        ffmpeg,
-                        "-v",
-                        "error",
-                        "-threads",
-                        str(options.threads),
-                        "-ss",
-                        f"{options.first_frame / float(fps):.12f}",
-                        "-i",
-                        str(job["reader"].path),
-                        "-map",
-                        f"0:v:{index}",
-                        "-frames:v",
-                        str(options.frames),
-                        "-vf",
-                        f"scale={options.lens_width}:{options.lens_width}:in_color_matrix=bt709",
-                        "-pix_fmt",
-                        "bgr24",
-                        "-f",
-                        "rawvideo",
-                        "-",
-                    ]
-                    processes.append(
-                        subprocess.Popen(command, stdout=subprocess.PIPE, stderr=log, bufsize=0)
+                log = stack.enter_context((work / "decode.log").open("wb"))
+                # Demux the original once. Two independent readers competed for
+                # external-drive I/O. Pair decoded frame ordinals explicitly;
+                # preflight requires matching constant-rate tracks/start times.
+                filters = (
+                    ";".join(
+                        f"[0:v:{i}]scale={options.lens_width}:{options.lens_width}:"
+                        f"in_color_matrix=bt709,format=bgr24,setpts=N/({float(fps):.12f}*TB)[l{i}]"
+                        for i in range(2)
                     )
+                    + ";[l0][l1]hstack=inputs=2:shortest=1[pair]"
+                )
+                command = [
+                    ffmpeg,
+                    "-v",
+                    "error",
+                    "-nostdin",
+                    "-filter_complex_threads",
+                    str(options.threads),
+                    "-threads",
+                    str(options.threads),
+                    "-ss",
+                    f"{options.first_frame / float(fps):.12f}",
+                    "-i",
+                    str(job["reader"].path),
+                    "-filter_complex",
+                    filters,
+                    "-map",
+                    "[pair]",
+                    "-frames:v",
+                    str(options.frames),
+                    "-pix_fmt",
+                    "bgr24",
+                    "-f",
+                    "rawvideo",
+                    "-",
+                ]
+                decoder = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=log, bufsize=0)
+                processes.append(decoder)
                 log = stack.enter_context((work / "encode.log").open("wb"))
                 encoder = subprocess.Popen(
                     [
@@ -301,13 +315,11 @@ def stitch(options, progress=None, dry_run=False):
                 )
                 processes.append(encoder)
                 for number, matrix in enumerate(matrices, start=1):
-                    frames = [
-                        np.frombuffer(
-                            read_exact(p.stdout, options.lens_width**2 * 3, options.timeout),
-                            np.uint8,
-                        ).reshape(options.lens_width, options.lens_width, 3)
-                        for p in processes[:2]
-                    ]
+                    pair = np.frombuffer(
+                        read_exact(decoder.stdout, options.lens_width**2 * 6, options.timeout),
+                        np.uint8,
+                    ).reshape(options.lens_width, options.lens_width * 2, 3)
+                    frames = [pair[:, : options.lens_width], pair[:, options.lens_width :]]
                     sphere, missing = stitcher.stitch(frames, matrix.T, velocities[number - 1])
                     missing_max = max(missing_max, missing)
                     if missing > 0.001:
@@ -372,7 +384,7 @@ def stitch(options, progress=None, dry_run=False):
                     if readout
                     else "Per-row rolling-shutter correction disabled or metadata absent",
                     "Confidence-gated local flow cannot reconstruct occluded detail"
-                    if options.seam == "flow"
+                    if options.seam in ["flow", "adaptive"]
                     else "Angular feather seams; no optical-flow parallax correction",
                     "No camera/propeller removal",
                     "50 Hz recorded attitude; no high-rate IMU fusion",
