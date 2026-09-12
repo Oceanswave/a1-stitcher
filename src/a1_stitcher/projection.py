@@ -121,6 +121,31 @@ def project(rays, lens):
     )
 
 
+def project_scan(rays, lens, angular_velocity=None, readout_seconds=0):
+    """Invert native top-to-bottom sensor timing with two row-map updates.
+
+    Velocity is expressed in this lens's coordinates. The native sensor row,
+    not the equirectangular output row, determines when a pixel was captured.
+    """
+    u, v, valid = project(rays, lens)
+    if angular_velocity is None or readout_seconds == 0:
+        return u, v, valid
+    velocity = np.asarray(angular_velocity, np.float32)
+    speed = float(np.linalg.norm(velocity))
+    if speed < 1e-8:
+        return u, v, valid
+    axis = velocity / speed
+    cross = np.cross(axis, rays)
+    axial = np.sum(rays * axis, axis=-1)[:, :, None] * axis
+    for _ in range(2):
+        dt = (np.clip(v / (lens["width"] - 1), 0, 1) - 0.5) * readout_seconds
+        angle = -speed * dt
+        cosine, sine = np.cos(angle)[:, :, None], np.sin(angle)[:, :, None]
+        corrected = rays * cosine + cross * sine + axial * (1 - cosine)
+        u, v, valid = project(corrected, lens)
+    return u, v, valid
+
+
 def rotation_fit(source, target):
     # target = R @ source, row-vector implementation below.
     u, _, vh = np.linalg.svd(source.T @ target)
@@ -231,7 +256,9 @@ def orientation37(reader):
 class TiledStitcher:
     """Bound memory use by projecting strips; retain the full sphere in one pass."""
 
-    def __init__(self, lenses, relative, width, strip_height=64):
+    def __init__(
+        self, lenses, relative, width, strip_height=64, seam="feather", fps=30, readout_seconds=0
+    ):
         if width < 64 or width > 8192 or width % 4 or strip_height < 1:
             raise StitchError("Sphere width must be a multiple of 4 between 64 and 8192")
         self.lenses = lenses
@@ -239,11 +266,27 @@ class TiledStitcher:
         self.width = width
         self.height = width // 2
         self.strip_height = strip_height
+        if not np.isfinite(readout_seconds) or not 0 <= readout_seconds <= 0.1:
+            raise StitchError("Invalid sensor readout duration")
+        self.readout_seconds = readout_seconds
+        if seam not in ["feather", "flow"]:
+            raise StitchError("Seam must be flow or feather")
+        self.seam = None
+        if seam == "flow":
+            from .seam import OverlapSeam
+
+            self.seam = OverlapSeam(lenses, self.relative, width, fps)
         longitude = ((np.arange(width, dtype=np.float32) + 0.5) / width - 0.5) * (2 * np.pi)
         self.sinlon, self.coslon = np.sin(longitude), np.cos(longitude)
 
-    def stitch(self, frames, world_to_lens):
+    def stitch(self, frames, world_to_lens, angular_velocity=None):
         rotation = np.asarray(world_to_lens, np.float32)
+        if angular_velocity is not None:
+            angular_velocity = np.asarray(angular_velocity, np.float32)
+            if angular_velocity.shape != (3,) or not np.isfinite(angular_velocity).all():
+                raise StitchError("Angular velocity must be a finite three-vector")
+        if self.seam is not None:
+            self.seam.prepare(frames, angular_velocity, self.readout_seconds)
         output = np.empty((self.height, self.width, 3), np.uint8)
         missing = 0
         for top in range(0, self.height, self.strip_height):
@@ -259,11 +302,23 @@ class TiledStitcher:
             rays = rays @ rotation.T
             result = np.zeros((*shape, 3), np.float32)
             total = np.zeros(shape, np.float32)
+            if self.seam is not None:
+                corrected, alpha, gains = self.seam.sample(rays)
             for i, lens in enumerate(self.lenses):
-                local = rays if i == 0 else rays @ self.relative
-                u, v, valid = project(local, lens)
-                weight = np.clip((local[:, :, 2] + 0.1) / 0.2, 0, 1) * valid
+                basis = rays if self.seam is None else corrected[i]
+                local = basis if i == 0 else basis @ self.relative
+                velocity = angular_velocity
+                if i == 1 and velocity is not None:
+                    velocity = np.asarray(velocity) @ self.relative
+                u, v, valid = project_scan(local, lens, velocity, self.readout_seconds)
+                weight = (
+                    np.clip((local[:, :, 2] + 0.1) / 0.2, 0, 1)
+                    if self.seam is None
+                    else (alpha if i == 0 else 1 - alpha)
+                ) * valid
                 warped = cv2.remap(frames[i], u, v, cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
+                if self.seam is not None:
+                    warped = warped * gains[i]
                 result += warped * weight[:, :, None]
                 total += weight
             covered = total > 1e-5

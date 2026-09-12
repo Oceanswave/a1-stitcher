@@ -98,6 +98,18 @@ def parser():
     )
     stitch.add_argument("--no-stabilization", action="store_true")
     stitch.add_argument(
+        "--rolling-shutter",
+        choices=["auto", "off"],
+        default="auto",
+        help="Correct native sensor-row timing using embedded readout duration, or disable it",
+    )
+    stitch.add_argument(
+        "--seam",
+        choices=["flow", "feather"],
+        default="flow",
+        help="Overlap alignment and local color balance, or legacy feather blending",
+    )
+    stitch.add_argument(
         "--resume",
         action="store_true",
         help="Reuse only an identical, checksum-verified completed job",
