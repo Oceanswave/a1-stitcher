@@ -8,11 +8,15 @@ and the timestamped attitude record. It renders a complete 360° sphere, adds
 standard spatial metadata, and verifies the finished video. Once a camera has
 been calibrated, conversion does not require Antigravity Studio.
 
-**Status: alpha.** The software has explicit input checks, bounded processes,
-no-overwrite outputs, receipts, and automated tests. Image quality is still
-experimental: rapid motion, rolling shutter, nearby parallax, seams, and camera
-visibility need further qualification. This is not an official Antigravity or
-Insta360 product and does not reproduce proprietary FlowState/AI stitching.
+**Status: alpha, with a new image-quality pipeline in 0.2.0.** Conversion now
+corrects native sensor-row timing, aligns lens overlap using checked optical
+flow, and reduces local lens color differences. Recorded tests show cleaner
+seam detail and substantially lower geometric error during a rapid turn;
+see [measurements and limits](docs/quality-v0.2.md).
+Camera/propeller removal, severe occlusion, high-frequency vibration and broader
+camera coverage remain open. This is an independent implementation, not an
+official Antigravity or Insta360 product or a reproduction of proprietary
+FlowState/AI stitching.
 
 ## Install
 
@@ -26,7 +30,7 @@ python3 -m venv .venv
 .venv/bin/a1-stitch doctor
 
 # Or install the tagged GitHub source as an isolated CLI with uv
-uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.1.0'
+uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.2.0'
 a1-stitch doctor
 ```
 
@@ -87,6 +91,17 @@ Video V2 metadata and fast-start MP4 layout. The tested originals are full-range
 SDR BT.709. Unknown/log/HDR/higher-bit-depth inputs are rejected rather than
 silently flattened. No LUT is applied. A1 audio is not supported; inputs with an
 audio track are refused instead of dropping it.
+
+The default `--seam flow` uses bidirectional overlap correspondence, rejects
+unreliable/oversized displacement, and matches local color without brightening
+the cleaner lens. It samples the original lenses directly at the output's
+resolution. `--rolling-shutter auto` uses the embedded readout duration and
+recorded angular motion to correct each native sensor row. Missing readout
+metadata disables that correction; invalid values fail preflight. For controlled
+comparisons or difficult footage, `--seam feather --rolling-shutter off` retains
+the original geometric/blending path. Both choices participate in cache identity.
+These corrections cost additional CPU time and cannot recover occluded detail
+or remove motion blur. Review the intended shot in motion.
 
 A matching `.mp4.receipt.json` records source range, camera profile, processing
 versions, source identity, output SHA-256, coverage, timing and full-decode

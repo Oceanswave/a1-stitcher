@@ -42,6 +42,25 @@ class Options:
     no_stabilization: bool = False
     resume: bool = False
     keep_work: bool = False
+    seam: str = "flow"
+    rolling_shutter: str = "auto"
+
+
+def sensor_readout(metadata, fps, mode):
+    if mode not in ["auto", "off"]:
+        raise StitchError("Rolling shutter mode must be auto or off")
+    if mode == "off":
+        return 0.0
+    milliseconds = metadata.get("rolling_shutter_ms", 0)
+    if (
+        isinstance(milliseconds, bool)
+        or not isinstance(milliseconds, (int, float))
+        or not np.isfinite(milliseconds)
+        or milliseconds < 0
+        or milliseconds > 1000 / fps
+    ):
+        raise StitchError("Invalid embedded sensor readout duration; inspect the source metadata")
+    return milliseconds / 1000
 
 
 def plan(options):
@@ -62,6 +81,8 @@ def plan(options):
         raise StitchError("Invalid thread count or timeout")
     if not isinstance(options.no_stabilization, bool):
         raise StitchError("no_stabilization must be boolean")
+    if options.seam not in ["flow", "feather"]:
+        raise StitchError("Seam must be flow or feather")
     source = Path(options.source).resolve(strict=True)
     calibration_path = Path(options.calibration).resolve(strict=True)
     output = Path(options.output).absolute()
@@ -80,11 +101,12 @@ def plan(options):
         raise StitchError("Requested frame range exceeds source video")
     times, _ = orientation37(reader)
     fps = Fraction(profile["fps"])
+    readout = sensor_readout(metadata, float(fps), options.rolling_shutter)
     begin = options.first_frame / float(fps) + calibration["time_shift_seconds"]
     end = (options.first_frame + options.frames - 1) / float(fps) + calibration[
         "time_shift_seconds"
     ]
-    if begin < times[0] or end > times[-1]:
+    if begin - readout / 2 < times[0] or end + readout / 2 > times[-1]:
         raise StitchError("Recorded attitude does not cover the selected video range")
     ffmpeg = binary("ffmpeg")
     version = run([ffmpeg, "-version"]).decode().splitlines()[0]
@@ -108,7 +130,13 @@ def plan(options):
         calibration=calibration,
         settings=settings,
         profile=profile,
-        seam="angular-feather-v1",
+        seam="bidirectional-flow-local-balance-v2"
+        if options.seam == "flow"
+        else "angular-feather-v1",
+        rolling_shutter=dict(
+            readout_seconds=readout,
+            model="native-row-constant-angular-velocity-v1" if readout else "off",
+        ),
         color="full-range SDR BT.709 to limited-range SDR BT.709; no LUT",
     )
     return dict(
@@ -175,6 +203,13 @@ def stitch(options, progress=None, dry_run=False):
             ]["time_shift_seconds"]
             pose = Slerp(times, poses)(samples)
             mount = Rotation.from_matrix(job["calibration"]["lens_mount"])
+            readout = job["recipe"]["rolling_shutter"]["readout_seconds"]
+            velocities = [None] * options.frames
+            if readout:
+                interpolation = Slerp(times, poses)
+                first = interpolation(samples - readout / 2)
+                last = interpolation(samples + readout / 2)
+                velocities = (mount.inv() * first.inv() * last * mount).as_rotvec() / readout
             ned_to_camera = Rotation.from_matrix([[0, 1, 0], [0, 0, 1], [1, 0, 0]])
             heading = pose[0].as_euler("xyz")[2]
             world = Rotation.from_euler("y", -heading) * ned_to_camera
@@ -183,7 +218,12 @@ def stitch(options, progress=None, dry_run=False):
                 matrices[:] = matrices[0]
             lenses = lenses_from_metadata(job["metadata"], options.lens_width)
             stitcher = TiledStitcher(
-                lenses, job["calibration"]["rotation_lens1_to_lens0"], options.width
+                lenses,
+                job["calibration"]["rotation_lens1_to_lens0"],
+                options.width,
+                seam=options.seam,
+                fps=float(fps),
+                readout_seconds=readout,
             )
             cv2.setNumThreads(options.threads)
             ffmpeg = binary("ffmpeg")
@@ -268,7 +308,7 @@ def stitch(options, progress=None, dry_run=False):
                         ).reshape(options.lens_width, options.lens_width, 3)
                         for p in processes[:2]
                     ]
-                    sphere, missing = stitcher.stitch(frames, matrix.T)
+                    sphere, missing = stitcher.stitch(frames, matrix.T, velocities[number - 1])
                     missing_max = max(missing_max, missing)
                     if missing > 0.001:
                         raise StitchError(
@@ -322,13 +362,18 @@ def stitch(options, progress=None, dry_run=False):
                 output_sha256=checked["output_sha256"],
                 verification=checked,
                 max_uncovered_fraction=missing_max,
+                seam_diagnostics=stitcher.seam.report() if stitcher.seam is not None else None,
                 elapsed_seconds=time.monotonic() - started,
                 quality_status="experimental; technical verification is not perceptual acceptance",
                 warnings=job["warnings"],
                 limitations=[
                     "8-bit SDR only",
-                    "No per-row rolling-shutter correction",
-                    "Angular feather seams; no optical-flow parallax correction",
+                    "Per-row correction assumes locally constant angular velocity; no high-rate vibration reconstruction"
+                    if readout
+                    else "Per-row rolling-shutter correction disabled or metadata absent",
+                    "Confidence-gated local flow cannot reconstruct occluded detail"
+                    if options.seam == "flow"
+                    else "Angular feather seams; no optical-flow parallax correction",
                     "No camera/propeller removal",
                     "50 Hz recorded attitude; no high-rate IMU fusion",
                 ],

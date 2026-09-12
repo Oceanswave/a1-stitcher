@@ -1,6 +1,6 @@
 # Qualification and current limits
 
-A1 Stitcher 0.1.0 is an alpha release. Reusable packaging, automated tests and
+A1 Stitcher 0.2.0 is an alpha release. Reusable packaging, automated tests and
 safe job handling are separate from perceptual stitching/stabilization quality.
 
 ## Real-camera evidence
@@ -56,7 +56,11 @@ the checkout so an editable source import cannot hide packaging mistakes.
 Inspect the intended interval in motion, including seams through nearby subjects,
 horizon changes, body/propeller visibility and subject shape. Keep the original,
 source-frame mapping, calibration and receipt. Review especially fast maneuvers;
-there is no per-row rolling-shutter correction or high-rate IMU fusion yet.
+native-row rolling-shutter correction now uses the embedded readout duration,
+but assumes locally constant angular velocity from the recorded attitude track.
+There is no high-rate IMU fusion or camera/propeller removal yet. The new overlap
+alignment and local color matching reduce artifacts but cannot reconstruct
+occluded detail. See [0.2.0 quality evidence](quality-v0.2.md).
 
 The current output path is 8-bit SDR BT.709. I-Log/D-Log, HDR, higher-bit-depth
 processing, audio preservation, other camera models, and broad hardware/firmware

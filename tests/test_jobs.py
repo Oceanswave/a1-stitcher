@@ -98,6 +98,8 @@ def test_dry_run_has_no_filesystem_side_effects(synthetic_camera, tmp_path):
         {"timeout": float("nan")},
         {"frames": True},
         {"no_stabilization": "yes"},
+        {"seam": "guess"},
+        {"rolling_shutter": "guess"},
     ],
 )
 def test_invalid_job_fails_before_writes(synthetic_camera, tmp_path, changes):

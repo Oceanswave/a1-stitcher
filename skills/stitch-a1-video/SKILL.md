@@ -7,8 +7,10 @@ description: Inspect, calibrate, and stitch Antigravity A1 INSV originals into s
 
 Use `a1-stitch` for original-source preparation. It runs locally and returns JSON
 on stdout, with progress/errors on stderr. It produces complete spheres and
-receipts; it does not assemble a finished film. Image quality is currently alpha,
-especially for rapid motion, rolling shutter, near seams and camera visibility.
+receipts; it does not assemble a finished film. Version 0.2.0 adds checked optical
+flow, local lens color balance and native-row rolling-shutter correction. Image
+quality is still alpha around occlusion, severe parallax, vibration and camera
+visibility; a valid encode does not establish perceptual acceptance.
 
 ## Locate and inspect
 
@@ -59,6 +61,15 @@ Select original ranges with useful handles. The first frame is zero-based and
 lens decode resolution for higher-resolution work (`--width 4096 --lens-width
 3840`, for example). Output is currently 8-bit SDR BT.709. The CLI rejects
 unqualified profiles instead of applying a guessed I-Log/D-Log LUT.
+
+Defaults are `--seam flow --rolling-shutter auto`. Flow aligns the shared lens
+area and rejects unreliable correspondences. Color balance reduces the brighter
+local mismatch without amplifying the cleaner lens; it is not a grading LUT.
+Row correction uses each native sensor row and the embedded readout duration,
+not the output sphere's row. Use `--seam feather --rolling-shutter off` for a
+controlled legacy comparison or when the newer corrections are unsuitable.
+Check seam diagnostics and the actual shot, including temporal color changes;
+trusted-overlap residuals are not whole-image quality scores. CPU cost is higher.
 
 For repeated jobs, use `--resume`: it reuses only an identical completed output
 with a valid receipt/checksum. It does not continue partial encodes. A stale lock
