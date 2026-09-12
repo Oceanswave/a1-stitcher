@@ -26,3 +26,8 @@ Read-only inspection of the user's Studio installation exposed feature names
 for optical-flow stitching, image fusion, intensity-ratio maps and gyro filtering.
 Those observations informed hypotheses; no Studio code, shaders, model weights,
 libraries or internal parameter tables are included or invoked by this project.
+
+The 0.3.0 periodic seam search is an independently authored dynamic program.
+Additional read-only Studio feature/symbol inspection exposed seam-finder and
+propeller-guard capability names; these are clues, not evidence of identical
+algorithms. No vendor masks or learned models are distributed or used.

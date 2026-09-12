@@ -7,8 +7,9 @@ description: Inspect, calibrate, and stitch Antigravity A1 INSV originals into s
 
 Use `a1-stitch` for original-source preparation. It runs locally and returns JSON
 on stdout, with progress/errors on stderr. It produces complete spheres and
-receipts; it does not assemble a finished film. Version 0.2.0 adds checked optical
-flow, local lens color balance and native-row rolling-shutter correction. Image
+receipts; it does not assemble a finished film. Version 0.3.0 includes checked optical
+flow, local lens color balance, native-row rolling-shutter correction, experimental
+adaptive seams and mapped Studio comparisons. Image
 quality is still alpha around occlusion, severe parallax, vibration and camera
 visibility; a valid encode does not establish perceptual acceptance.
 
@@ -71,6 +72,10 @@ controlled legacy comparison or when the newer corrections are unsuitable.
 Check seam diagnostics and the actual shot, including temporal color changes;
 trusted-overlap residuals are not whole-image quality scores. CPU cost is higher.
 
+For difficult overlap, compare `--seam adaptive` with the default `flow`. Adaptive
+placement is bounded and moves gradually; it does not identify camera bodies or
+reconstruct occluded detail. Do not select it solely because it is newer.
+
 For repeated jobs, use `--resume`: it reuses only an identical completed output
 with a valid receipt/checksum. It does not continue partial encodes. A stale lock
 requires checking its PID before removing it. `--keep-work` retains diagnostic
@@ -79,6 +84,18 @@ resolves relative paths against its own directory; read the repository README
 for its schema instead of inventing fields.
 
 ## Verify and hand off
+
+When a full Studio reference exists, use matching source moments to expose
+differences. `a1-stitch compare CANDIDATE.mp4 --reference STUDIO.mp4
+--reference-first-frame OFFSET --samples 0,15,30,60 --output-dir NEW_REVIEW`
+maps candidate frame zero to reference frame OFFSET. Sample indices belong to
+the candidate; choose indices within both videos. Both require the same frame
+rate and full-sphere content. Read the generated JSON and `review.html`.
+The aligned view removes only global rotation, with no color fit or local warp.
+Inspect the unaligned candidate and alignment changes too: per-frame alignment
+can hide horizon shake. Neither inlier geometry scores nor selected stills cover
+unmatched pixels or full motion. If a color band appears, compare original lens
+pixels before assuming that it is a propeller or a stitching geometry problem.
 
 Run `a1-stitch verify NEW_SPHERE.mp4 --receipt NEW_SPHERE.mp4.receipt.json`.
 Check the receipt's source range, profile, frame count, calibration and warnings.

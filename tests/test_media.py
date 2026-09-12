@@ -17,6 +17,7 @@ def good():
         r_frame_rate="30000/1001",
         avg_frame_rate="30000/1001",
         nb_frames="120",
+        start_time="0.000000",
     )
     return {"streams": [stream, {**stream, "index": 1}]}
 
@@ -32,6 +33,8 @@ def good():
         ("avg_frame_rate", "30/1"),
         ("r_frame_rate", "0/0"),
         ("nb_frames", "0"),
+        ("start_time", "0.033367"),
+        ("start_time", "N/A"),
     ],
 )
 def test_unsupported_profiles_not_silently_converted(monkeypatch, field, value):

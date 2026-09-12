@@ -82,6 +82,15 @@ def parser():
     )
     migrate.add_argument("input")
     migrate.add_argument("--output", required=True)
+    comparison = sub.add_parser(
+        "compare", help="Compare mapped sphere frames to a Studio reference"
+    )
+    comparison.add_argument("candidate")
+    comparison.add_argument("--reference", required=True)
+    comparison.add_argument("--samples", type=frames_csv, required=True)
+    comparison.add_argument("--reference-first-frame", type=int, required=True)
+    comparison.add_argument("--output-dir", required=True)
+    comparison.add_argument("--width", type=int, default=2048)
     stitch = sub.add_parser(
         "stitch", help="Convert an original source frame range into a verified standard sphere"
     )
@@ -105,9 +114,9 @@ def parser():
     )
     stitch.add_argument(
         "--seam",
-        choices=["flow", "feather"],
+        choices=["flow", "adaptive", "feather"],
         default="flow",
-        help="Overlap alignment and local color balance, or legacy feather blending",
+        help="Fixed flow (default), experimental adaptive seam, or legacy feather blending",
     )
     stitch.add_argument(
         "--resume",
@@ -174,6 +183,17 @@ def main(argv=None):
 
             result = verify(
                 args.video, receipt=args.receipt, full=not args.quick, timeout=args.timeout
+            )
+        elif args.command == "compare":
+            from .compare import compare
+
+            result = compare(
+                args.candidate,
+                args.reference,
+                args.samples,
+                args.reference_first_frame,
+                args.output_dir,
+                args.width,
             )
         elif args.command == "stitch":
             from .render import Options, stitch

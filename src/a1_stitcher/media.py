@@ -20,6 +20,7 @@ def source_profile(path, metadata):
     counts = []
     rates = []
     dimensions = []
+    starts = []
     try:
         for video in videos:
             width, height = video["width"], video["height"]
@@ -49,9 +50,10 @@ def source_profile(path, metadata):
             counts.append(count)
             rates.append(rate)
             dimensions.append((width, height))
+            starts.append(Fraction(video["start_time"]))
     except (ValueError, KeyError, ZeroDivisionError) as exc:
         raise StitchError(f"Incomplete camera video metadata: {exc}") from exc
-    if len(set(counts)) != 1 or len(set(rates)) != 1 or len(set(dimensions)) != 1:
+    if any(len(set(values)) != 1 for values in [counts, rates, dimensions, starts]):
         raise StitchError("Lens tracks have different dimensions, timing, or frame counts")
     return dict(
         fps=str(rates[0]),

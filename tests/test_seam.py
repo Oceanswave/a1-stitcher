@@ -146,3 +146,27 @@ def test_balance_does_not_brighten_clean_lens_or_change_distant_pixels():
 def test_invalid_seam_mode_rejected():
     with pytest.raises(StitchError, match="Seam"):
         TiledStitcher([], np.eye(3), 256, seam="invented")
+
+
+def test_unmeasured_color_arc_is_not_interpolated_from_distant_sectors():
+    first = np.full((64, 1024, 3), 70, np.uint8)
+    second = np.full_like(first, 140)
+    valid = np.ones((64, 1024), bool)
+    valid[:, 256:768] = False
+    ratio, good = color_ratio(first, second, valid)
+    assert good
+    assert np.max(np.abs(ratio[:, 430:595])) < 1e-4
+    assert np.exp(ratio[:, 40:160]).mean() > 1.9
+
+
+def test_color_measurement_cannot_paint_a_band_outside_the_overlap():
+    lenses = lenses_from_metadata(metadata(), 128)
+    seam = OverlapSeam(lenses, Rotation.from_euler("y", 180, degrees=True).as_matrix(), 512)
+    seam.flows = [np.zeros((seam.height, seam.width, 2), np.float32)] * 2
+    seam.confidence = [np.zeros((seam.height, seam.width), np.float32)] * 2
+    seam.log_ratio = np.full((1, seam.width, 3), np.log(2), np.float32)
+    rays = seam.directions(np.zeros((1, 4)), np.radians([[0, 8, 12, -20]]))
+    _, _, gains = seam.sample(rays)
+    assert gains[1][0, 0, 0] == pytest.approx(0.5)
+    for gain in gains:
+        assert np.allclose(gain[0, 1:], 1, rtol=0, atol=1e-12)

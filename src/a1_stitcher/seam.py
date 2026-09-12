@@ -88,7 +88,9 @@ def color_ratio(first, second, valid, sectors=32):
         support[index] = 1
     if support.sum() < sectors // 4:
         return np.zeros((1, width, 3), np.float32), False
-    # Periodic interpolation and broad smoothing prevent sector/color boundaries.
+    # Never infer a color correction across a large unmeasured arc (e.g. clear
+    # sky). Interpolating between distant supported sectors can paint false color
+    # into a lens that was already clean. A single missing sector may bridge.
     centers = (np.arange(sectors) + 0.5) * width / sectors - 0.5
     good = support > 0
     interpolated = np.stack(
@@ -98,6 +100,11 @@ def color_ratio(first, second, valid, sectors=32):
         ],
         axis=1,
     )[None].astype(np.float32)
+    supported_sectors = good | (np.roll(good, 1) & np.roll(good, -1))
+    local_support = np.interp(
+        np.arange(width), centers, supported_sectors.astype(float), period=width
+    )[None, :, None]
+    interpolated *= local_support
     radius = max(4, width // sectors)
     padded = np.pad(interpolated, ((0, 0), (radius * 3, radius * 3), (0, 0)), mode="wrap")
     smoothed = cv2.GaussianBlur(padded, (0, 0), radius, sigmaY=0)
@@ -107,7 +114,7 @@ def color_ratio(first, second, valid, sectors=32):
 class OverlapSeam:
     """One stateful seam estimator per contiguous conversion job."""
 
-    def __init__(self, lenses, relative, output_width, fps=30):
+    def __init__(self, lenses, relative, output_width, fps=30, adaptive=False):
         self.lenses = lenses
         self.width = max(512, min(2048, output_width // 2))
         self.height = max(64, round(self.width * 16 / 360))
@@ -115,6 +122,12 @@ class OverlapSeam:
         self.pixel = np.array([2 * np.pi / self.width, 2 * self.extent / self.height], np.float32)
         self.relative = np.asarray(relative, np.float32)
         self.fps = fps
+        self.path = None
+        if adaptive:
+            from .adaptive import AdaptivePath
+
+            self.path = AdaptivePath(fps)
+        self.path_latitude = None
         azimuth, latitude = np.meshgrid(
             (np.arange(self.width) + 0.5) * self.pixel[0] - np.pi,
             (np.arange(self.height) + 0.5) * self.pixel[1] - self.extent,
@@ -174,6 +187,12 @@ class OverlapSeam:
             # Do not hold a previous scene's balance through unsupported footage.
             self.log_ratio *= np.exp(-1 / (self.fps * 0.25))
         self.frames += 1
+        if self.path is not None:
+            balance = self.log_ratio if self.log_ratio is not None else ratio
+            gain0, gain1 = np.exp(np.minimum(balance, 0)), np.exp(np.minimum(-balance, 0))
+            self.path_latitude = self.path.update(
+                bands[0] * gain0, aligned * gain1, valid, self.confidence[0], self.extent
+            )
         self.totals["confident_fraction"] += float(trusted.sum() / max(1, middle.sum()))
         if trusted.any():
             self.measured_frames += 1
@@ -190,8 +209,12 @@ class OverlapSeam:
         x = (azimuth + np.pi) / self.pixel[0] - 0.5
         y = (latitude + self.extent) / self.pixel[1] - 0.5
         # A narrow detail transition reduces double images when flow must abstain.
-        alpha = smoothstep((latitude / np.radians(1.2) + 1) / 2)
-        active = np.abs(latitude) < np.radians(1.2)
+        offset = 0
+        if self.path_latitude is not None:
+            px = (azimuth + np.pi) / (2 * np.pi) * self.path_latitude.shape[1] - 0.5
+            offset = periodic_sample(self.path_latitude, px, np.zeros_like(px))
+        alpha = smoothstep(((latitude - offset) / np.radians(1.2) + 1) / 2)
+        active = np.abs(latitude - offset) < np.radians(1.2)
         directions = []
         for i in range(2):
             if not active.any():
@@ -211,7 +234,9 @@ class OverlapSeam:
             gains = [np.ones((*alpha.shape, 3), np.float32)] * 2
         else:
             balance = periodic_sample(self.log_ratio, x, np.zeros_like(x))
-            taper = 1 - smoothstep(np.abs(latitude) / np.radians(24))
+            # Measurement spans only this overlap belt. Extrapolating its color
+            # into the wider sphere created dark arcs in otherwise clean sky.
+            taper = 1 - smoothstep(np.abs(latitude) / self.extent)
             # Prefer the lower signal in each channel. Brightening the hazier
             # lens's partner would spread veiling glare into otherwise clean detail.
             gains = [np.exp(np.minimum(sign * balance, 0) * taper[:, :, None]) for sign in [1, -1]]
@@ -231,5 +256,6 @@ class OverlapSeam:
             "frames": self.frames,
             "measured_frames": self.measured_frames,
             "flow_analysis_width": self.width,
+            "adaptive_path": self.path.report() if self.path is not None else None,
             "diagnostic_scope": "trusted central overlap pixels; not a whole-image quality score",
         }
