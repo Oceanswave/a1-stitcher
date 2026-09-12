@@ -1,0 +1,116 @@
+"""Media profile validation and decoded output verification."""
+
+from fractions import Fraction
+
+from .errors import StitchError
+from .process import binary, probe, run
+from .storage import digest, load_json
+
+
+def source_profile(path, metadata):
+    info = probe(path)
+    streams = info["streams"]
+    videos = [s for s in streams if s["codec_type"] == "video"]
+    if metadata.get("camera_type") != "Antigravity A1" or len(videos) != 2:
+        raise StitchError("Expected an Antigravity A1 original with two lens video tracks")
+    if any(s["codec_type"] == "audio" for s in streams):
+        raise StitchError("Audio preservation is not implemented; refusing to silently drop it")
+    if metadata.get("gamma_mode") not in [None, ""]:
+        raise StitchError("Explicit camera gamma mode has not been qualified")
+    counts = []
+    rates = []
+    dimensions = []
+    try:
+        for video in videos:
+            width, height = video["width"], video["height"]
+            if width != height or not 32 <= width <= 8192:
+                raise StitchError("Only square lens tracks up to 8192 pixels are supported")
+            if video["pix_fmt"] not in ["yuv420p", "yuvj420p"]:
+                raise StitchError(
+                    "Only the tested 8-bit SDR profile is supported; preserve higher-depth/log originals"
+                )
+            if any(
+                video.get(key) != value
+                for key, value in [
+                    ("color_space", "bt709"),
+                    ("color_transfer", "bt709"),
+                    ("color_range", "pc"),
+                ]
+            ):
+                raise StitchError(
+                    "Unknown input color profile; no assumed log transform is applied"
+                )
+            rate = Fraction(video["r_frame_rate"])
+            if rate <= 0 or rate > 120 or Fraction(video["avg_frame_rate"]) != rate:
+                raise StitchError("Only known constant-frame-rate recordings are supported")
+            count = int(video["nb_frames"])
+            if count <= 0:
+                raise StitchError("Empty video track")
+            counts.append(count)
+            rates.append(rate)
+            dimensions.append((width, height))
+    except (ValueError, KeyError, ZeroDivisionError) as exc:
+        raise StitchError(f"Incomplete camera video metadata: {exc}") from exc
+    if len(set(counts)) != 1 or len(set(rates)) != 1 or len(set(dimensions)) != 1:
+        raise StitchError("Lens tracks have different dimensions, timing, or frame counts")
+    return dict(
+        fps=str(rates[0]),
+        frames=counts[0],
+        width=dimensions[0][0],
+        color="full-range SDR BT.709",
+        audio="none",
+        streams=[v["index"] for v in videos],
+    )
+
+
+def verify(path, *, expected=None, receipt=None, full=True, timeout=600):
+    info = probe(path)
+    streams = info["streams"]
+    videos = [s for s in streams if s["codec_type"] == "video"]
+    if len(videos) != 1:
+        raise StitchError("Expected one output video track")
+    video = videos[0]
+    if video["width"] != video["height"] * 2:
+        raise StitchError("Output is not a complete 2:1 sphere")
+    if not any(s.get("projection") == "equirectangular" for s in video.get("side_data_list", [])):
+        raise StitchError("Output lacks recognized equirectangular metadata")
+    if not any(s.get("type") == "2D" for s in video.get("side_data_list", [])):
+        raise StitchError("Output lacks monoscopic stereo metadata")
+    if expected:
+        for key in ["width", "height", "nb_frames"]:
+            if int(video[key]) != int(expected[key]):
+                raise StitchError(f"Output {key} does not match the planned conversion")
+        if Fraction(video["r_frame_rate"]) != Fraction(expected["fps"]):
+            raise StitchError("Output frame rate differs from source")
+    if any(
+        video.get(key) != value
+        for key, value in [
+            ("color_space", "bt709"),
+            ("color_transfer", "bt709"),
+            ("color_primaries", "bt709"),
+            ("color_range", "tv"),
+        ]
+    ):
+        raise StitchError("Output color metadata is inconsistent with SDR processing")
+    checksum = digest(path)
+    if receipt is not None:
+        saved = load_json(receipt)
+        if saved.get("output_sha256") != checksum:
+            raise StitchError("Output checksum differs from receipt")
+    if full:
+        run(
+            [binary("ffmpeg"), "-v", "error", "-xerror", "-i", str(path), "-f", "null", "-"],
+            timeout=timeout,
+        )
+    return dict(
+        width=video["width"],
+        height=video["height"],
+        frames=int(video["nb_frames"]),
+        fps=video["r_frame_rate"],
+        duration_seconds=float(video["duration"]),
+        projection="equirectangular",
+        stereo="monoscopic",
+        output_sha256=checksum,
+        full_decode=full,
+        color="limited-range SDR BT.709",
+    )

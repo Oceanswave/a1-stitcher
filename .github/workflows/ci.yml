@@ -1,0 +1,62 @@
+name: CI
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: '3.12'
+          - os: ubuntu-latest
+            python: '3.13'
+          - os: macos-latest
+            python: '3.12'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install FFmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: command -v ffmpeg || brew install ffmpeg
+      - name: Install package and development tools
+        run: python -m pip install '.[dev]'
+      - run: a1-stitch doctor
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest --cov=a1_stitcher --cov-report=term-missing --cov-fail-under=80
+      - name: Build distribution
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: python -m build
+      - name: Check installed wheel outside checkout
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/a1-wheel-check"
+          "$RUNNER_TEMP/a1-wheel-check/bin/pip" install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/a1-wheel-check/bin/a1-stitch" doctor
+          "$RUNNER_TEMP/a1-wheel-check/bin/python" -m a1_stitcher --version
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        with:
+          name: distribution
+          path: dist/
+          if-no-files-found: error

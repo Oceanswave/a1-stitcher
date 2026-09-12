@@ -1,0 +1,21 @@
+A1 Stitcher is an independent implementation. It is not affiliated with or
+endorsed by Antigravity or Insta360. Camera names identify compatible formats.
+
+The Insta360 decoder and protobuf schema in AdrianEddy/telemetry-parser informed
+interpretation of the indexed trailer and metadata field numbers:
+https://github.com/AdrianEddy/telemetry-parser
+Reference revision: d45ebf2afce85fa691838fd32b3da8ae2fcac773 (MIT / Apache-2.0).
+No telemetry-parser code or runtime dependency is distributed in this package.
+
+BenjaminHenriksson/insv-stitch provided a useful public MEI/X5 pipeline reference:
+https://github.com/BenjaminHenriksson/insv-stitch
+Reference revision: 722b9c7915fc372cdeb73ca25c931cec00f36e13 (MIT).
+The A1 lens mapping and measured attitude convention are implemented separately;
+X5-specific constants and its per-unit IMU transform are not A1 defaults.
+
+Spherical Video V2 box layouts follow Google's public specification:
+https://github.com/google/spatial-media/blob/master/docs/spherical-video-v2-rfc.md
+
+NumPy, SciPy and OpenCV are separately installed dependencies with their own
+licenses. FFmpeg is a separately installed executable; the package neither
+bundles it nor changes the licensing of a user's chosen FFmpeg build.

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "a1-stitcher"
+version = "0.1.0"
+description = "Independent Antigravity A1 stitching and recorded-attitude stabilization"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{name = "A1 Stitcher contributors"}]
+classifiers = ["Development Status :: 3 - Alpha", "Programming Language :: Python :: 3", "Topic :: Multimedia :: Video :: Conversion"]
+dependencies = ["numpy>=2,<3", "scipy>=1.13,<2", "opencv-python-headless>=4.10,<6"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<10",
+    "pytest-cov>=6,<8",
+    "ruff>=0.11,<1",
+    "build>=1.2,<2",
+    "pyyaml>=6,<7",
+]
+
+[project.scripts]
+a1-stitch = "a1_stitcher.cli:main"
+
+[project.urls]
+Repository = "https://github.com/Oceanswave/a1-stitcher"
+Issues = "https://github.com/Oceanswave/a1-stitcher/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/a1_stitcher"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/docs", "/skills", "/README.md", "/LICENSE", "/NOTICE", "/CHANGELOG.md", "/CONTRIBUTING.md", "/pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["integration: requires local FFmpeg and ffprobe"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
