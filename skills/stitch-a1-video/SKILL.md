@@ -7,7 +7,7 @@ description: Prepare Antigravity A1 INSV originals as stabilized 360 spheres wit
 
 Use `a1-stitch` for original-source preparation. JSON goes to stdout and
 progress/errors to stderr. It produces full spheres, GPS sidecars and receipts;
-it does not assemble a finished film. **This skill describes the 0.5 command set.**
+it does not assemble a finished film. **This skill describes the 0.6 command set.**
 Check `a1-stitch --version` and `a1-stitch stitch --help` before using new flags;
 an older installed CLI must be updated from the public repository or a checked
 local build. Never silently substitute another application named Antigravity.
@@ -20,7 +20,7 @@ The source is `https://github.com/Oceanswave/a1-stitcher`; a checkout can use it
 ## Default to finishing quality
 
 The defaults are **8192×4096, native lens resolution, 16-bit image processing,
-10-bit HEVC MP4, flow seams, native-row rolling-shutter correction and automatic
+10-bit HEVC MP4, flow seams, average-rate native-row correction, fixed source-frame heading and automatic
 Metal selection on supported Macs**. CPU remains available with the same
 geometry. Auto fallback and the actual backend are recorded; an explicit Metal
 request fails if unavailable. HEVC encoding requires FFmpeg's `libx265`.
@@ -78,7 +78,19 @@ shots before choosing it. Do not enable it merely because the sample rate is hig
 `--seam flow` rejects unreliable correspondences and confines color matching to
 measured overlap. `--seam adaptive` is an optional bounded moving seam, not camera
 removal. `--rolling-shutter auto` uses native sensor rows and embedded readout
-duration, currently with locally constant angular velocity. A lower seam residual
+duration. Keep the proven `--rolling-shutter-model velocity` default for ordinary
+preparation. The experimental `trajectory` option uses 33 quaternion samples
+through the scan. It improves synthetic changing-motion recovery but produced
+mixed real-footage results, including a worse gyro transfer diagnostic. The
+optional gyro profile can feed either row model. Sensor timing and sampling still
+limit accuracy; this does not deblur exposure or reconstruct missing detail.
+
+`--heading-reference-frame 0` keeps a consistent panorama heading across ranges
+from one original. Use the same covered reference frame for all chunks; `-1`
+uses the selected clip start as in 0.5. This is not calibrated compass north.
+Inspection also reports exposure timing/duration statistics. These are diagnostic:
+do not add a guessed half-exposure offset to a profile that already fits video
+and attitude timing. A lower seam residual
 or newer algorithm alone does not establish better image quality.
 
 ## Flight profiles and repeated jobs

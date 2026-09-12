@@ -148,6 +148,18 @@ def parser():
     )
     stitch.add_argument("--no-stabilization", action="store_true")
     stitch.add_argument(
+        "--heading-reference-frame",
+        type=int,
+        default=0,
+        help="Source frame defining fixed sphere heading (default 0); -1 uses selected clip start",
+    )
+    stitch.add_argument(
+        "--rolling-shutter-model",
+        choices=["trajectory", "velocity"],
+        default="velocity",
+        help="Experimental orientation samples through each scan, or the proven average velocity (default)",
+    )
+    stitch.add_argument(
         "--rolling-shutter",
         choices=["auto", "off"],
         default="auto",

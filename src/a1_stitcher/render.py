@@ -24,6 +24,7 @@ from .errors import ProcessError, StitchError
 from .gpx import decode_gps, gpx_bytes, verify_gpx
 from .insv import InsvReader
 from .media import source_profile, verify
+from .motion import ROW_SAMPLES, row_rotations, world_orientation
 from .mp4 import make_faststart, tag_equirectangular
 from .process import binary, read_exact, run, stop, write_all
 from .projection import TiledStitcher, lenses_from_metadata, orientation37
@@ -51,6 +52,8 @@ class Options:
     backend: str = "auto"
     gyro_profile: str | None = None
     gyro_anchor_seconds: float = 0.1
+    rolling_shutter_model: str = "velocity"
+    heading_reference_frame: int = 0
 
 
 def sensor_readout(metadata, fps, mode):
@@ -97,6 +100,14 @@ def plan(options):
         raise StitchError("Seam must be flow, adaptive or feather")
     if options.backend not in ["auto", "cpu", "metal"]:
         raise StitchError("Backend must be auto, cpu or metal")
+    if options.rolling_shutter_model not in ["trajectory", "velocity"]:
+        raise StitchError("Rolling shutter model must be trajectory or velocity")
+    if (
+        isinstance(options.heading_reference_frame, bool)
+        or not isinstance(options.heading_reference_frame, int)
+        or options.heading_reference_frame < -1
+    ):
+        raise StitchError("Heading reference frame must be -1 or a nonnegative integer")
     source = Path(options.source).resolve(strict=True)
     calibration_path = Path(options.calibration).resolve(strict=True)
     output = Path(options.output).absolute()
@@ -124,13 +135,30 @@ def plan(options):
     lenses_from_metadata(metadata, lens_width)
     if options.first_frame + options.frames > profile["frames"]:
         raise StitchError("Requested frame range exceeds source video")
-    times, _ = orientation37(reader)
+    times, recorded_poses = orientation37(reader)
     fps = Fraction(profile["fps"])
     readout = sensor_readout(metadata, float(fps), options.rolling_shutter)
     begin = options.first_frame / float(fps) + calibration["time_shift_seconds"]
     end = (options.first_frame + options.frames - 1) / float(fps) + calibration[
         "time_shift_seconds"
     ]
+    heading_frame = (
+        options.first_frame
+        if options.heading_reference_frame == -1
+        else options.heading_reference_frame
+    )
+    heading_time = heading_frame / float(fps) + calibration["time_shift_seconds"]
+    if heading_frame >= profile["frames"] or not times[0] <= heading_time <= times[-1]:
+        raise StitchError("Heading reference frame is outside the source/attitude range")
+    if readout and options.rolling_shutter_model == "trajectory":
+        selected = times[
+            max(0, np.searchsorted(times, begin - readout / 2) - 1) : np.searchsorted(
+                times, end + readout / 2
+            )
+            + 1
+        ]
+        if np.any(np.diff(selected) > 0.05):
+            raise StitchError("Recorded attitude has gaps over 50 ms in the selected scan range")
     if begin - readout / 2 < times[0] or end + readout / 2 > times[-1]:
         raise StitchError("Recorded attitude does not cover the selected video range")
     if (
@@ -139,12 +167,14 @@ def plan(options):
         or not 0.02 <= options.gyro_anchor_seconds <= 1
     ):
         raise StitchError("Gyro anchor interval must be 0.02 to 1 second")
+    heading_pose = Slerp(times, recorded_poses)([heading_time])[0]
     gyro = None
     if options.gyro_profile:
         from .gyro import trajectory
 
         motion, gyro = trajectory(reader, options.gyro_profile, options.gyro_anchor_seconds)
-        motion(np.array([begin - readout / 2, end + readout / 2]))
+        heading_pose = motion(np.array([begin - readout / 2, end + readout / 2, heading_time]))[-1]
+    world_orientation(heading_pose)
     ffmpeg = binary("ffmpeg")
     check_encoder(ffmpeg, encoding)
     version = run([ffmpeg, "-version"]).decode().splitlines()[0]
@@ -181,8 +211,18 @@ def plan(options):
         else "angular-feather-v1",
         rolling_shutter=dict(
             readout_seconds=readout,
-            model="native-row-constant-angular-velocity-v1" if readout else "off",
+            model=(
+                "native-row-quaternion-trajectory-v1"
+                if options.rolling_shutter_model == "trajectory"
+                else "native-row-constant-angular-velocity-v1"
+            )
+            if readout
+            else "off",
+            samples_per_frame=ROW_SAMPLES
+            if readout and options.rolling_shutter_model == "trajectory"
+            else 0,
         ),
+        heading_reference=dict(source_frame=heading_frame, attitude_seconds=heading_time),
         color="full-range SDR BT.709 to limited-range SDR BT.709; no LUT",
         encoding=encoding,
         gps=gps["summary"] if gps else None,
@@ -284,13 +324,12 @@ def stitch(options, progress=None, dry_run=False):
             mount = Rotation.from_matrix(job["calibration"]["lens_mount"])
             readout = job["recipe"]["rolling_shutter"]["readout_seconds"]
             velocities = [None] * options.frames
-            if readout:
+            if readout and options.rolling_shutter_model == "velocity":
                 first = interpolation(samples - readout / 2)
                 last = interpolation(samples + readout / 2)
                 velocities = (mount.inv() * first.inv() * last * mount).as_rotvec() / readout
-            ned_to_camera = Rotation.from_matrix([[0, 1, 0], [0, 0, 1], [1, 0, 0]])
-            heading = pose[0].as_euler("xyz")[2]
-            world = Rotation.from_euler("y", -heading) * ned_to_camera
+            reference = job["recipe"]["heading_reference"]["attitude_seconds"]
+            world = world_orientation(interpolation([reference])[0])
             matrices = (world * pose * mount).as_matrix()
             if options.no_stabilization:
                 matrices[:] = matrices[0]
@@ -380,7 +419,18 @@ def stitch(options, progress=None, dry_run=False):
                         raw_dtype,
                     ).reshape(lens_width, lens_width * 2, 3)
                     frames = [pair[:, :lens_width], pair[:, lens_width:]]
-                    sphere, missing = stitcher.stitch(frames, matrix.T, velocities[number - 1])
+                    rows = None
+                    if readout and options.rolling_shutter_model == "trajectory":
+                        rows = row_rotations(
+                            interpolation,
+                            samples[number - 1],
+                            mount,
+                            job["calibration"]["rotation_lens1_to_lens0"],
+                            readout,
+                        )
+                    sphere, missing = stitcher.stitch(
+                        frames, matrix.T, velocities[number - 1], rows
+                    )
                     missing_max = max(missing_max, missing)
                     if missing > 0.001:
                         raise StitchError(
@@ -444,7 +494,11 @@ def stitch(options, progress=None, dry_run=False):
                 warnings=job["warnings"],
                 limitations=[
                     "Only tested 8-bit SDR inputs; higher-precision processing does not add captured dynamic range",
-                    "Per-row correction assumes locally constant angular velocity; no high-rate vibration reconstruction"
+                    (
+                        "Per-row quaternion trajectory; accuracy is limited by attitude timing and sampling, no motion deblurring"
+                        if options.rolling_shutter_model == "trajectory"
+                        else "Per-row correction assumes locally constant angular velocity"
+                    )
                     if readout
                     else "Per-row rolling-shutter correction disabled or metadata absent",
                     "Confidence-gated local flow cannot reconstruct occluded detail"

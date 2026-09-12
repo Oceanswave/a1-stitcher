@@ -26,9 +26,23 @@ float3 project(float3 ray,const device float* l) {
     bool valid=ray.z > -1/l[0] && den>0 && u>=0 && v>=0 && u<l[10]-1 && v<l[10]-1;
     return float3(u,v,valid?1.0f:0.0f);
 }
-float3 projectScan(float3 ray,const device float* l,float3 vel,float readout) {
+float3 rotateRow(float3 ray, float row, const device float* track, int count) {
+    float position=clamp(row,0.0f,1.0f)*(count-1);
+    int lower=min(int(position),count-2); float fraction=position-lower;
+    float4 a=float4(track[lower*4],track[lower*4+1],track[lower*4+2],track[lower*4+3]);
+    float4 b=float4(track[lower*4+4],track[lower*4+5],track[lower*4+6],track[lower*4+7]);
+    float4 q=normalize(mix(a,b,fraction)); float3 c=2*cross(q.xyz,ray);
+    return ray+q.w*c+cross(q.xyz,c);
+}
+float3 projectScan(float3 ray,const device float* l,float3 vel,float readout,
+                   const device float* track,int count) {
     float3 uv=project(ray,l); float speed=length(vel);
-    if(readout==0 || speed<1e-8f) return uv;
+    if(readout==0) return uv;
+    if(count>0) {
+        for(int k=0;k<2;k++) uv=project(rotateRow(ray,uv.y/(l[10]-1),track,count),l);
+        return uv;
+    }
+    if(speed<1e-8f) return uv;
     float3 axis=vel/speed,crossed=cross(axis,ray),axial=dot(ray,axis)*axis;
     for(int k=0;k<2;k++) {
         float angle=-speed*(clamp(uv.y/(l[10]-1),0.0f,1.0f)-0.5f)*readout;
@@ -53,7 +67,7 @@ float3 sample(const device uchar* a,int w,float2 uv,bool high) {
 }
 kernel void stitch(const device uchar* first [[buffer(0)]],const device uchar* second [[buffer(1)]],
                    const device float* p [[buffer(2)]],const device float* a [[buffer(3)]],
-                   const device float* unused [[buffer(4)]],device uchar* output [[buffer(5)]],
+                   const device float* rows [[buffer(4)]],device uchar* output [[buffer(5)]],
                    device atomic_uint* missing [[buffer(6)]],uint2 pos [[thread_position_in_grid]]) {
     int width=int(p[0]),height=width/2; if(pos.x>=uint(width)||pos.y>=uint(height))return;
     bool high=p[1]>0,flow=p[2]>0; int sw=int(p[3]),sh=int(p[4]),area=sw*sh;
@@ -79,7 +93,7 @@ kernel void stitch(const device uchar* first [[buffer(0)]],const device uchar* s
         if(weight<=0)continue;
         float3 velocity=float3(p[26],p[27],p[28]);if(i)velocity=mtv(p+17,velocity);
         const device float* lens=p+30+i*11;
-        float3 uv=projectScan(local,lens,velocity,p[29]);weight*=uv.z;
+        float3 uv=projectScan(local,lens,velocity,p[29],rows+i*int(p[6])*4,int(p[6]));weight*=uv.z;
         if(weight<=0)continue;
         float3 warped=sample(i==0?first:second,int(lens[10]),uv.xy,high);
         if(flow)for(int c=0;c<3;c++)warped[c]*=exp(min((i==0?1.0f:-1.0f)*field(a,area*6,sw,1,3,c,fx,0),0.0f)*taper);

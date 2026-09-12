@@ -26,7 +26,8 @@ def test_unsupported_host(monkeypatch):
 @pytest.mark.parametrize("seam", ["feather", "flow", "adaptive"])
 @pytest.mark.parametrize("dtype", [np.uint8, np.uint16])
 @pytest.mark.parametrize("readout", [0, 0.021])
-def test_gpu_matches_cpu(seam, dtype, readout):
+@pytest.mark.parametrize("model", ["velocity", "trajectory"])
+def test_gpu_matches_cpu(seam, dtype, readout, model):
     from a1_stitcher.metal import MetalStitcher
 
     lenses = lenses_from_metadata(metadata(128), 128)
@@ -48,9 +49,16 @@ def test_gpu_matches_cpu(seam, dtype, readout):
     args = dict(seam=seam, readout_seconds=readout)
     cpu = TiledStitcher(lenses, relative, 256, **args)
     gpu = MetalStitcher(lenses, relative, 256, **args)
+    rows = None
+    if model == "trajectory":
+        from test_motion import vibration
+
+        from a1_stitcher.motion import row_rotations
+
+        rows = row_rotations(vibration, 0, Rotation.identity(), relative, 0.021)
     for _ in range(2):
-        a, ma = cpu.stitch(frames, rotation, [2, -3, 1])
-        b, mb = gpu.stitch(frames, rotation, [2, -3, 1])
+        a, ma = cpu.stitch(frames, rotation, [2, -3, 1], rows)
+        b, mb = gpu.stitch(frames, rotation, [2, -3, 1], rows)
         difference = np.abs(a.astype(float) - b.astype(float)) / (257 if dtype == np.uint16 else 1)
         assert difference.mean() < 0.15
         assert np.percentile(difference, 99.9) <= 2

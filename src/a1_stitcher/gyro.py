@@ -182,6 +182,13 @@ class AnchoredGyro:
         if np.any(np.diff(raw_times) <= 0) or np.max(np.diff(raw_times)) > 0.010001:
             raise StitchError("Raw gyro contains gaps or invalid ordering")
         self.recorded = Slerp(times, poses)
+        # np.interp otherwise copies a strided column of the entire flight on
+        # every integration step. Row sampling needs many short queries.
+        self.components = [np.ascontiguousarray(self.values[:, c]) for c in range(3)]
+        self.anchor_errors = np.full((len(times) - 1, 3), np.nan)
+
+    def rates(self, query):
+        return np.column_stack([np.interp(query, self.raw_times, c) for c in self.components])
 
     def integrate(self, start, end):
         steps = np.maximum(1, np.ceil((end - start) / 0.001).astype(int))
@@ -191,10 +198,7 @@ class AnchoredGyro:
             active = index < steps
             a = start + np.minimum(index, steps) * dt
             b = start + np.minimum(index + 1, steps) * dt
-            omega = (
-                interpolate(self.raw_times, self.values, a)
-                + interpolate(self.raw_times, self.values, b)
-            ) / 2
+            omega = (self.rates(a) + self.rates(b)) / 2
             increment = Rotation.from_rotvec(omega * ((b - a) * active)[:, None])
             result = result * increment
         return result
@@ -215,12 +219,16 @@ class AnchoredGyro:
         if start.min() < self.raw_times[0] or end.max() > self.raw_times[-1]:
             raise StitchError("Raw gyro does not cover the requested attitude intervals")
         local = self.integrate(start, query)
-        complete = self.integrate(start, end)
-        desired = self.poses[indices].inv() * self.poses[indices + 1]
-        error = complete.inv() * desired
+        missing = np.unique(indices[np.isnan(self.anchor_errors[indices, 0])])
+        if len(missing):
+            complete = self.integrate(self.times[missing], self.times[missing + 1])
+            desired = self.poses[missing].inv() * self.poses[missing + 1]
+            self.anchor_errors[missing] = (complete.inv() * desired).as_rotvec()
         amount = (query - start) / (end - start)
         return (
-            self.poses[indices] * local * Rotation.from_rotvec(error.as_rotvec() * amount[:, None])
+            self.poses[indices]
+            * local
+            * Rotation.from_rotvec(self.anchor_errors[indices] * amount[:, None])
         )
 
 

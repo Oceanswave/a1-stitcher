@@ -8,13 +8,15 @@ and the timestamped attitude record. It renders a complete 360° sphere, adds
 standard spatial metadata, and verifies the finished video. Once a camera has
 been calibrated, conversion does not require Antigravity Studio.
 
-**Status: alpha, with native-resolution finishing and Metal acceleration in 0.5.0.**
+**Status: alpha, with trajectory-based sensor-row correction in 0.6.0.**
 Defaults now produce an 8192×4096 sphere from native lens frames, with 16-bit
 image processing and 10-bit HEVC encoding. ProRes 422 HQ is available for finishing.
 An independent Metal renderer accelerates supported Macs; the CPU reference
 remains portable. The converter corrects native sensor-row timing, aligns lens
 overlap with checked optical flow, and confines lens color matching to measured
-areas. See [the 0.5 qualification and performance report](docs/quality-v0.5.md).
+areas. An optional row model samples orientation through each scan, and a fixed source-frame
+heading keeps adjacent exports consistent. See [the 0.6 motion report](docs/quality-v0.6.md)
+and [Metal performance measurements](docs/quality-v0.5.md).
 
 Experimental raw-gyro interpolation is available with a per-unit calibration and
 separate-recording transfer validation. Recorded attitude remains the default:
@@ -41,11 +43,12 @@ not measured image-quality scores.
 | Area | What the CLI generates or preserves | Difference from the source archive | Importance and practical effect |
 | --- | --- | --- | --- |
 | Re-stitching and lens geometry | One full equirectangular sphere, rendered from both calibrated lens tracks. | Dewarp, lens registration, seam decisions, flow and local color matching are baked into pixels. Separate fisheye images and overlap cannot be recovered from the composite. | **High** — keep INSV to improve stitching, change calibration, handle parallax differently or use a future vendor algorithm. |
-| Stabilization and rolling shutter | Recorded-attitude stabilization and native-row correction; optional calibrated raw-gyro interpolation. Further global rotation and image-based correction remain possible. | Applied corrections are baked in. Raw IMU, original attitude samples and sensor-row measurements are not embedded in the generated video. The gyro profile in the receipt describes processing; it is not the raw sensor stream. | **High** — re-running sensor-based stabilization or changing row timing requires the original. The exported sphere can still be reframed freely. |
+| Stabilization and rolling shutter | Recorded-attitude stabilization with native-row correction; optional varying row trajectories and calibrated raw-gyro interpolation. A fixed source-frame heading is shared across exports. Further global rotation and image-based correction remain possible. | Applied corrections are baked in. Raw IMU, original attitude samples and sensor-row measurements are not embedded in the generated video. The gyro profile in the receipt describes processing; it is not the raw sensor stream. | **High** — re-running sensor-based stabilization or changing row timing requires the original. The exported sphere can still be reframed freely. |
 | View, framing and depth | Complete 360° × 180° monoscopic coverage, with later yaw/pitch/roll, field of view, tracking and animated reframes. | No stereo depth or change of the physical viewpoint is created. This is a capture limit, not something equirectangular export discards. | **Low** for ordinary reframing — the full sphere is retained. An overhead drone cannot become a ground-level camera through reframing. |
 | Spatial detail and compression | Default 8192×4096 output from native-size lenses; optional ProRes 422 HQ or smaller review encodes. | Projection interpolation, seam blending and another lossy encode change pixels. Native-resolution processing avoids the former 1440-pixel lens downsample; an 8K sphere does not imply 8K detail in a narrow reframe. | **Medium** at the new defaults; **High if a small preview is used for finishing**. Render a fresh master from INSV when changing quality settings. |
 | Color precision and chroma | Default 16-bit image processing → 10-bit 4:2:0 HEVC, CRF 12. ProRes 422 HQ offers 10-bit 4:2:2; H.264 review mode uses 8-bit 4:2:0. | The tested original is 8-bit 4:2:0 SDR. Extra processing precision reduces new rounding but does not create captured dynamic range or missing color detail. HEVC and ProRes are still lossy generations. | **Medium** for grading — use HEVC10 or ProRes and avoid repeated intermediate re-encodes. This fixes the old always-8-bit output limitation, not the source's capture limits. |
 | Color space, range and log/HDR | Tagged limited-range SDR BT.709 suitable for SDR Resolve/Fusion grading. No LUT is applied. | Tested sources are full-range SDR BT.709. The range conversion changes signal encoding, not intended display contrast when interpreted correctly. Log/HDR/higher-bit-depth inputs remain rejected. | **Low** for correctly interpreted supported SDR; **High if log/HDR ingest is required** — it is unsupported, not silently flattened. |
+| Exposure telemetry | `inspect` reports exposure duration, sample timing, gaps and the possible half-exposure variation. | Exposure samples are not copied into MP4 or applied to the calibrated frame clock. The profile may already absorb an exposure offset; dynamic exposure/gyro synchronization remains unqualified. | **High** for future sensor timing work; **Low** for routine cutting. Keep INSV; do not add a second guessed timing correction. |
 | Frame timing and selected duration | Selected consecutive frames at the original constant frame rate, with exact first-source-frame/count in the receipt. | Unselected frames are absent from this working copy. No retiming or frame interpolation is added by stitching. | **Medium** — include handles; the archive is needed for longer trims or a different event. |
 | Audio | Typical tested A1 inputs have no audio track. | Inputs containing audio are refused; this release has no audio-preserving conversion path. | **High if the input contains sound** — conversion is blocked rather than silently dropping it. Keep any separate sound recordings for the editor. |
 | GPS flight profile | Optional GPX sidecar with recorded position, UTC, reported elevation and speed/course extensions; checksum in the video receipt. Standalone extraction is also available. | GPS is not embedded as the original telemetry track. GPX covers the entire source recording, even for a short video selection. Exact UTC/video alignment and altitude datum remain unqualified; missing/invalid GPS causes the requested export to fail. | **Medium** for editorial maps; **High for precise flight/sensor analysis**. Keep originals and the sidecar; do not treat reported elevation as verified AGL or infer a complete multi-file flight. |
@@ -104,7 +107,7 @@ python3 -m venv .venv
 .venv/bin/a1-stitch doctor
 
 # Or install the tagged GitHub source as an isolated CLI with uv
-uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.5.0'
+uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.6.0'
 a1-stitch doctor
 ```
 
@@ -236,12 +239,23 @@ The default `--seam flow` uses bidirectional overlap correspondence, rejects
 unreliable/oversized displacement, and matches local color without brightening
 the cleaner lens. It samples the original lenses directly at the output's
 resolution. `--rolling-shutter auto` uses the embedded readout duration and
-recorded angular motion to correct each native sensor row. Missing readout
+an average angular velocity to correct each native sensor row (the qualified
+`--rolling-shutter-model velocity` default). The experimental `trajectory` option
+uses 33 quaternion samples through the scan and follows changing rotation,
+including an optional calibrated gyro trajectory. It improves synthetic changing
+motion but gave mixed real-footage results; see the [0.6 report](docs/quality-v0.6.md). Missing readout
 metadata disables that correction; invalid values fail preflight. For controlled
 comparisons or difficult footage, `--seam feather --rolling-shutter off` retains
 the original geometric/blending path. Both choices participate in cache identity.
 These corrections cannot recover occluded detail
 or remove motion blur. Review the intended shot in motion.
+
+`--heading-reference-frame 0` fixes panorama heading from original frame zero,
+even when exporting later ranges. All chunks from one source can use the same
+reference. Choose another covered source frame when needed; `-1` restores the
+previous selected-clip-start convention. This is a fixed yaw reference, not a
+claim of compass north or an automatic subject-following camera. Heading and
+row-model choices are recorded in receipts and affect resume identity.
 
 `--seam adaptive` adds experimental seam placement within ±4° of the optical
 seam. It seeks a closed path through areas of better lens agreement and limits
@@ -275,7 +289,8 @@ CPU/Metal differences averaged about 0.12 of an 8-bit channel level in the
 unencoded comparison, with the same geometry and processing model. Use
 `--backend auto` (default), `--backend metal` to require it, or `--backend cpu`
 for the reference path. See [the full methods, pixel differences and motion
-results](docs/quality-v0.5.md) for the measured scope and remaining limitations.
+results](docs/quality-v0.5.md), [the 0.6 motion pass](docs/quality-v0.6.md), and
+[remaining Studio functionality](docs/studio-parity.md) for the measured scope and remaining limitations.
 
 ### Optional raw-gyro interpolation
 

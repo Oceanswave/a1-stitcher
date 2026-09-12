@@ -116,8 +116,8 @@ blur, nearby occlusion, propellers and flare remain visible in difficult scenes.
 
 ## Acceptance and regression coverage
 
-The hardware-enabled suite passed 213 tests with 89.83% Python coverage. Without
-GPU access, 201 pass and 12 hardware cases are explicitly skipped. Checks include
+The hardware-enabled suite passed 220 tests with 89.86% Python coverage. Without
+GPU access, 208 pass and 12 hardware cases are explicitly skipped. Checks include
 FFmpeg encodes/full decode, codec/pixel-format verification, native-size defaults,
 batch profile paths/collision protection, synthetic gyro fitting and vibration,
 CPU/GPU parity, no-overwrite publication, receipts and GPX behavior.
