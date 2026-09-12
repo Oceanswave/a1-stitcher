@@ -21,6 +21,55 @@ camera coverage remain open. This is an independent implementation, not an
 official Antigravity or Insta360 product or a reproduction of proprietary
 FlowState/AI stitching.
 
+## What conversion preserves and bakes in
+
+**Keep the INSV originals. The exported MP4 is a rendered 360° working copy,
+not a replacement for the camera recording.** Conversion never modifies the
+original. INSV is already an MP4-family container; this process decodes its two
+fisheye tracks, renders a sphere, and encodes new pixels. Renaming or remuxing the
+original would not perform that work.
+
+| Area | What remains available in the exported MP4 | What is baked in, omitted or limited |
+| --- | --- | --- |
+| View and framing | The complete 360° × 180° monoscopic sphere. Choose yaw, pitch, roll, field of view, aspect ratio, subject tracking and animated camera moves later in a 360-aware editor. | It does not create stereo depth or let you move the physical camera viewpoint. Those are capture limits, not losses caused by export. |
+| Stitch and stabilization | The corrected image, with further global rotation, horizon adjustment and image-based stabilization possible. | Lens dewarping, registration, recorded-attitude stabilization, optional rolling-shutter correction, seam placement, blending and local color matching are baked in. Re-running those operations from the camera data requires the original; the composite cannot reconstruct the separate lens images or overlap. |
+| Detail | Detail supported by the chosen sphere and lens-decode sizes. | Downsampling, interpolation and lossy encoding discard information. Increasing the exported MP4's size afterward cannot recover it. |
+| Color | Ordinary SDR grading in Resolve/Fusion. Current output is 8-bit, 4:2:0, limited-range BT.709 H.264 at CRF 18. | This adds a lossy generation and rounding/resampling to the tested 8-bit SDR sources. Log, HDR and higher-bit-depth inputs are currently rejected, not silently converted. No LUT is applied; this export is not an iLog/D-Log workflow. |
+| Timing and sound | The selected consecutive frames at the original constant frame rate. | Frames outside the selected range are absent; export extra handles if needed. Audio-containing sources are currently refused, so this release does not export sound. |
+| Camera data and provenance | Standard Spherical Video V2 metadata identifies a full monoscopic sphere. A separate receipt records the source range, calibration, processing settings, versions and output checksum. | Original telemetry/subtitle tracks, raw IMU/attitude records and the vendor trailer are not copied into the MP4. Camera-specific GPS, flight overlays, capture timestamps and original-only Studio controls are not preserved by this workflow. The receipt is not a complete metadata archive or a way to reconstruct the original. |
+
+### A 4K sphere is not a 4K reframed shot
+
+The sphere's width covers **all 360°**. At the equator, a 90° horizontal view
+spans roughly 512 source columns in a 2048-wide sphere, 1024 in a 4096-wide sphere,
+or 2048 in an 8192-wide sphere. This is an angular-sampling guide, not a guarantee
+of rectilinear output detail: projection, lens quality and sampling vary across
+the image. The default `--width 2048 --lens-width 1440` is for review. For more
+detail, use `--width 4096 --lens-width 3840` on the tested 3840-pixel lens tracks;
+raising sphere width while leaving lens decoding small still limits detail.
+The supported 8192-wide setting has not been qualified as an 8K finishing master.
+
+### Which limits can improve?
+
+Equirectangular describes the projection, and MP4 the container. Neither requires
+our current 8-bit SDR H.264 settings. Higher-precision processing, a higher-quality
+working codec and richer metadata sidecars are possible future additions, but
+are **not implemented export options in this release**. Higher precision would
+reduce additional processing loss; it would not invent detail or dynamic range
+missing from an 8-bit recording. Limited-range BT.709 is a signal encoding choice,
+not by itself a narrower display brightness range when interpreted correctly.
+
+Seams, propeller visibility, severe parallax and residual vibration are also
+algorithm/capture limitations, not inherent consequences of equirectangular MP4.
+Studio comparisons help evaluate those differences. Even a better stitch remains
+a rendered composite once exported.
+
+Archive the untouched INSV plus the calibration profile and receipt. Use the
+sphere for editing, grade it as the tagged SDR BT.709 material it is, and render
+again from the original when improving stitching or preparing a higher-quality
+finish. Avoid repeated intermediate re-encodes. See [format notes](docs/format.md)
+for the source records and output metadata.
+
 ## Install
 
 Python 3.12+, macOS or Linux, and FFmpeg/ffprobe with HEVC decoding and libx264
