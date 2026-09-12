@@ -20,6 +20,7 @@ from scipy.spatial.transform import Rotation, Slerp
 from . import __version__
 from .calibration import load_calibration
 from .errors import ProcessError, StitchError
+from .gpx import decode_gps, gpx_bytes, verify_gpx
 from .insv import InsvReader
 from .media import source_profile, verify
 from .mp4 import make_faststart, tag_equirectangular
@@ -44,6 +45,7 @@ class Options:
     keep_work: bool = False
     seam: str = "flow"
     rolling_shutter: str = "auto"
+    export_gpx: bool = False
 
 
 def sensor_readout(metadata, fps, mode):
@@ -81,19 +83,26 @@ def plan(options):
         raise StitchError("Invalid thread count or timeout")
     if not isinstance(options.no_stabilization, bool):
         raise StitchError("no_stabilization must be boolean")
+    if not isinstance(options.export_gpx, bool):
+        raise StitchError("export_gpx must be boolean")
     if options.seam not in ["flow", "adaptive", "feather"]:
         raise StitchError("Seam must be flow, adaptive or feather")
     source = Path(options.source).resolve(strict=True)
     calibration_path = Path(options.calibration).resolve(strict=True)
     output = Path(options.output).absolute()
     receipt = Path(str(output) + ".receipt.json")
+    gpx_path = Path(str(output) + ".gpx")
     protected = {source, calibration_path}
     if output.resolve() in protected or receipt.resolve() in protected:
         raise StitchError("Output or receipt would overwrite an input")
+    if options.export_gpx and gpx_path.resolve() in protected:
+        raise StitchError("GPX output would overwrite an input")
     if output.suffix.lower() != ".mp4":
         raise StitchError("Output must be an MP4 path")
     reader = InsvReader(source)
     metadata = reader.metadata()
+    gps = decode_gps(reader) if options.export_gpx else None
+    gps_data = gpx_bytes(gps) if gps else None
     calibration = load_calibration(calibration_path, metadata)
     lenses_from_metadata(metadata, options.lens_width)
     profile = source_profile(source, metadata)
@@ -140,6 +149,7 @@ def plan(options):
             model="native-row-constant-angular-velocity-v1" if readout else "off",
         ),
         color="full-range SDR BT.709 to limited-range SDR BT.709; no LUT",
+        gps=gps["summary"] if gps else None,
     )
     return dict(
         recipe=recipe,
@@ -153,16 +163,27 @@ def plan(options):
         reader=reader,
         metadata=metadata,
         calibration=calibration,
+        gps=dict(
+            output=str(gpx_path),
+            output_sha256=hashlib.sha256(gps_data).hexdigest(),
+            **gps["summary"],
+        )
+        if gps
+        else None,
+        gps_data=gps_data,
     )
 
 
 def stitch(options, progress=None, dry_run=False):
     started = time.monotonic()
     job = plan(options)
-    public_plan = {k: v for k, v in job.items() if k not in ["reader", "metadata", "calibration"]}
+    public_plan = {
+        k: v for k, v in job.items() if k not in ["reader", "metadata", "calibration", "gps_data"]
+    }
     if dry_run:
         return dict(status="planned", **public_plan)
     output, receipt_path = Path(job["output"]), Path(job["receipt"])
+    gpx_path = Path(job["gps"]["output"]) if job["gps"] else None
     output.parent.mkdir(parents=True, exist_ok=True)
     with output_lock(output):
         if (
@@ -170,6 +191,7 @@ def stitch(options, progress=None, dry_run=False):
             or output.is_symlink()
             or receipt_path.exists()
             or receipt_path.is_symlink()
+            or (gpx_path is not None and (gpx_path.exists() or gpx_path.is_symlink()))
         ):
             if not options.resume:
                 raise StitchError(
@@ -188,11 +210,16 @@ def stitch(options, progress=None, dry_run=False):
                     "Cannot resume: source, calibration, settings, or processing version changed"
                 )
             verification = verify(output, receipt=receipt_path, full=False)
+            if job["gps"]:
+                if saved.get("gps") != job["gps"]:
+                    raise StitchError("GPX receipt differs from the requested export")
+                verify_gpx(gpx_path, job["gps"]["output_sha256"])
             return dict(
                 status="reused",
                 output=str(output),
                 receipt=str(receipt_path),
                 verification=verification,
+                gps=job["gps"],
             )
         work = Path(tempfile.mkdtemp(prefix=".a1-stitch-", dir=output.parent))
         processes = []
@@ -373,6 +400,7 @@ def stitch(options, progress=None, dry_run=False):
                 recipe=job["recipe"],
                 output_sha256=checked["output_sha256"],
                 verification=checked,
+                gps=job["gps"],
                 max_uncovered_fraction=missing_max,
                 seam_diagnostics=stitcher.seam.report() if stitcher.seam is not None else None,
                 elapsed_seconds=time.monotonic() - started,
@@ -390,14 +418,27 @@ def stitch(options, progress=None, dry_run=False):
                     "50 Hz recorded attitude; no high-rate IMU fusion",
                 ],
             )
+            ready_gpx = work / "flight.gpx"
+            if gpx_path is not None:
+                ready_gpx.write_bytes(job["gps_data"])
             publish_file(ready, output)
             published = True
+            gpx_published = False
             try:
+                if gpx_path is not None:
+                    publish_file(ready_gpx, gpx_path)
+                    gpx_published = True
                 write_new_json(receipt_path, receipt)
             except BaseException:
                 # Remove only the same inode that this job just linked into place.
                 if output.exists() and output.stat().st_ino == ready.stat().st_ino:
                     output.unlink()
+                if (
+                    gpx_published
+                    and gpx_path.exists()
+                    and gpx_path.stat().st_ino == ready_gpx.stat().st_ino
+                ):
+                    gpx_path.unlink()
                 published = False
                 raise
             return dict(
@@ -405,6 +446,7 @@ def stitch(options, progress=None, dry_run=False):
                 output=str(output),
                 receipt=str(receipt_path),
                 verification=checked,
+                gps=job["gps"],
                 elapsed_seconds=receipt["elapsed_seconds"],
                 warnings=job["warnings"],
             )

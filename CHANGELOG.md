@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0
+
+Export recorded flight tracks with `a1-stitch gpx` or `stitch --export-gpx`
+(also `export_gpx: true` in batch jobs). Read indexed binary GPS record 7 without
+Studio, calibration or video decoding for standalone extraction. Write GPX 1.1
+positions, UTC timestamps and camera-reported elevation, with speed/course
+extensions. Preserve gaps, reject unsupported/corrupt layouts, omit void fixes
+and invalid positions, and retain sample counts and checksums in receipts.
+
+GPX covers the entire source recording, including when the video is trimmed.
+Altitude's vertical datum and precise GPS-to-video clock alignment remain
+unqualified. No interpolated positions, assumed 3D fix, or guessed flight path.
+Add synthetic parser, CLI, no-clobber, rollback and combined render/resume tests.
+
 ## 0.3.0
 
 Fix false color bands revealed by matching Studio reference frames: stop

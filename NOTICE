@@ -7,6 +7,14 @@ https://github.com/AdrianEddy/telemetry-parser
 Reference revision: d45ebf2afce85fa691838fd32b3da8ae2fcac773 (MIT / Apache-2.0).
 No telemetry-parser code or runtime dependency is distributed in this package.
 
+The 0.4.0 GPS decoder independently implements the observed 53-byte record-7
+layout, also described by telemetry-parser's insta360/record.rs and ExifTool's
+QuickTimeStream.pl (ProcessInsta360):
+https://github.com/AdrianEddy/telemetry-parser/blob/d45ebf2afce85fa691838fd32b3da8ae2fcac773/src/insta360/record.rs
+https://github.com/exiftool/exiftool/blob/master/lib/Image/ExifTool/QuickTimeStream.pl
+No ExifTool code is copied, distributed or required at runtime. GPX output follows:
+https://www.topografix.com/GPX/1/1/
+
 BenjaminHenriksson/insv-stitch provided a useful public MEI/X5 pipeline reference:
 https://github.com/BenjaminHenriksson/insv-stitch
 Reference revision: 722b9c7915fc372cdeb73ca25c931cec00f36e13 (MIT).

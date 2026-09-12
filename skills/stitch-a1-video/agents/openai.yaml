@@ -1,6 +1,6 @@
 interface:
   display_name: "A1 Stitcher"
-  short_description: "Prepare A1 originals as stabilized 360° spheres"
-  default_prompt: "Use $stitch-a1-video to prepare and verify selected Antigravity A1 footage for my editor."
+  short_description: "Prepare A1 360° spheres and GPX flight tracks"
+  default_prompt: "Use $stitch-a1-video to prepare Antigravity A1 footage or export its GPS flight track with the a1-stitch CLI."
 policy:
   allow_implicit_invocation: true
