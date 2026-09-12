@@ -46,6 +46,49 @@ native sensor-row timing. This does not use the raw IMU record for high-rate
 stabilization. Missing readout metadata disables row correction; invalid values
 fail preflight.
 
+## GPS record 7
+
+The examined A1 v3 trailers contain encoding-0, 53-byte GPS samples. The byte
+layout agrees with the public telemetry-parser GPS reader and ExifTool's INSV
+GPS field interpretation; only the layout and field meanings inform this
+independent implementation. See [NOTICE](../NOTICE) for sources.
+
+| Offset | Type, little-endian | Interpretation |
+| --- | --- | --- |
+| 0 | uint64 | Unix seconds |
+| 8 | uint16 | Fractional milliseconds, 0–999 |
+| 10 | char | `A` acquired or `V` void |
+| 11 | float64 | Latitude magnitude in degrees |
+| 19 | char | `N` or `S` |
+| 20 | float64 | Longitude magnitude in degrees |
+| 28 | char | `E` or `W`; the publicly observed `O` west variant is also accepted |
+| 29 | float64 | Reported speed in m/s |
+| 37 | float64 | Reported course in degrees |
+| 45 | float64 | Reported altitude in metres; vertical datum unverified |
+
+Coordinates are signed using their hemisphere fields. Longitude +180° is
+represented as the equivalent -180° to satisfy GPX 1.1. Latitude/longitude must
+be finite and within geographic bounds. Void fixes and invalid positions break
+segments; optional nonfinite altitude or invalid speed/course are omitted and
+counted. Unknown active-fix layouts, invalid millisecond fields and non-increasing
+acquired UTC timestamps fail rather than being reordered or assigned guessed times.
+The reader accepts at most 100,000 samples and does not use video decoding.
+
+GPX exports these measurements without geoid correction or altitude smoothing.
+Although the observed heights are consistent with an absolute altitude, their
+vertical reference has not been established; they are not advertised as surveyed
+MSL elevation, height above ground or takeoff-relative height. Course is retained
+as reported rather than promoted to a calibrated compass heading. Active status
+does not establish satellite count, accuracy, or a 3D fix.
+
+GPX covers the source recording's GPS track, independently of a stitched frame
+range. GPS Unix timestamps are distinct from the relative IMU/video clock. A
+frame-accurate mapping between those clocks is not yet qualified. Track gaps are
+preserved and no intermediate points or coverage outside the source are invented.
+The output uses the [GPX 1.1 schema](https://www.topografix.com/GPX/1/1/), with speed,
+course, original sample index and status under
+`https://github.com/Oceanswave/a1-stitcher/xmlns/flight/1` extensions.
+
 ## Geometry
 
 The tested A1 `offset_v3` holds a lens count, 19 values per lens, and a final flag:
@@ -83,7 +126,8 @@ follow the [Spherical Video V2 specification](https://github.com/google/spatial-
 The output contains one newly encoded video track. It does not retain the two
 original HEVC lens tracks, `INS.Subtitle` track, indexed trailer, or complete camera
 telemetry. The external receipt contains processing provenance and frame mapping,
-not a lossless copy of those records. See the
+not a lossless copy of those records. `gpx` or `stitch --export-gpx` can additionally
+preserve the decoded GPS track in a separate GPX file. See the
 [conversion tradeoffs](../README.md#what-conversion-preserves-and-bakes-in) before
 treating an export as an archive.
 

@@ -36,7 +36,7 @@ original would not perform that work.
 | Detail | Detail supported by the chosen sphere and lens-decode sizes. | Downsampling, interpolation and lossy encoding discard information. Increasing the exported MP4's size afterward cannot recover it. |
 | Color | Ordinary SDR grading in Resolve/Fusion. Current output is 8-bit, 4:2:0, limited-range BT.709 H.264 at CRF 18. | This adds a lossy generation and rounding/resampling to the tested 8-bit SDR sources. Log, HDR and higher-bit-depth inputs are currently rejected, not silently converted. No LUT is applied; this export is not an iLog/D-Log workflow. |
 | Timing and sound | The selected consecutive frames at the original constant frame rate. | Frames outside the selected range are absent; export extra handles if needed. Audio-containing sources are currently refused, so this release does not export sound. |
-| Camera data and provenance | Standard Spherical Video V2 metadata identifies a full monoscopic sphere. A separate receipt records the source range, calibration, processing settings, versions and output checksum. | Original telemetry/subtitle tracks, raw IMU/attitude records and the vendor trailer are not copied into the MP4. Camera-specific GPS, flight overlays, capture timestamps and original-only Studio controls are not preserved by this workflow. The receipt is not a complete metadata archive or a way to reconstruct the original. |
+| Camera data and provenance | Standard Spherical Video V2 metadata identifies a full monoscopic sphere. A separate receipt records the source range, calibration, processing settings, versions and output checksum. GPS position, UTC time and reported altitude can also be exported as a separate GPX track. | Original telemetry/subtitle tracks, raw IMU/attitude records and the vendor trailer are not copied into the MP4. Flight overlays, camera capture timestamps and original-only Studio controls are not recreated. Neither the receipt nor GPX is a complete metadata archive or a way to reconstruct the original. |
 
 ### A 4K sphere is not a 4K reframed shot
 
@@ -82,7 +82,7 @@ python3 -m venv .venv
 .venv/bin/a1-stitch doctor
 
 # Or install the tagged GitHub source as an isolated CLI with uv
-uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.3.0'
+uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.4.0'
 a1-stitch doctor
 ```
 
@@ -99,6 +99,59 @@ Inspection reads bounded trailer records and reports camera, calibration and
 motion metadata. Camera serial numbers and GPS fields are not decoded into the
 report; use `--redact-path` when sharing it. Reports and receipts can still reveal
 filenames or local paths. Review them before posting publicly.
+
+### Export the flight track
+
+```sh
+# Extract GPS without stitching, calibration, Studio or FFmpeg
+a1-stitch gpx recording.insv --output flight.gpx
+
+# Inspect the GPS summary without writing any output
+a1-stitch gpx recording.insv --output flight.gpx --dry-run
+
+# Reuse only an identical GPX with a matching receipt and checksum
+a1-stitch gpx recording.insv --output flight.gpx --resume
+```
+
+The GPX 1.1 track contains recorded latitude/longitude, UTC timestamps with
+millisecond precision, and camera-reported elevation in metres. Speed in m/s,
+course in degrees, active-fix status and the original GPS sample index are stored
+in the `a1` extension namespace; readers may ignore these extensions. No 2D/3D
+fix quality is inferred from an active fix. The altitude datum is unverified:
+do not treat it as height above ground or takeoff-relative height.
+
+Extraction currently supports the observed 53-byte binary GPS record 7 layout.
+Void fixes and invalid positions are omitted, starting a new segment so the
+track does not bridge them. Time gaps greater than ten seconds also start a new
+segment (`gpx --gap-seconds SECONDS` changes that threshold). Duplicate/backward
+acquired timestamps, unsupported layouts and incomplete records fail. No GPS or
+no usable fixes produces an error and no GPX. No positions are interpolated.
+
+**The track covers GPS recorded in the entire source file**, even when a stitched
+video uses only selected frames. It is not necessarily the entire flight if
+recording started late or spanned multiple files. GPS uses its recorded UTC clock;
+this release does not assert frame-accurate GPS-to-video synchronization or infer
+UTC from filenames. The two examined A1 recordings contained 398 and 549 acquired
+fixes at approximately 1.6-second intervals; this is not a guaranteed camera rate.
+
+The standalone command writes `flight.gpx.receipt.json` with source identity,
+GPS-record/output checksums, accepted/skipped sample counts and interpretation
+limits. Existing outputs and symlinks are refused. GPX files contain actual
+locations; `inspect --redact-path` does not anonymize a GPX track.
+
+To export alongside video, add `--export-gpx` to `stitch` or `"export_gpx": true`
+to a batch job:
+
+```sh
+a1-stitch stitch recording.insv --calibration camera-calibration.json \
+  --first-frame 1200 --frames 360 --output selected-sphere.mp4 --export-gpx
+```
+
+This also writes `selected-sphere.mp4.gpx`. Its checksum and GPS summary are in
+the MP4's receipt; there is no additional GPX receipt in this mode. GPS preflight
+runs before rendering, and a successful combined job requires both outputs.
+`--resume` checks both checksums. Export is opt-in so sources without GPS remain
+stitchable. See [GPS format notes](docs/format.md#gps-record-7) for field meanings.
 
 ### Calibrate a camera once
 

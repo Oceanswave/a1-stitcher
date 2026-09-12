@@ -1,13 +1,14 @@
 ---
 name: stitch-a1-video
-description: Inspect, calibrate, and stitch Antigravity A1 INSV originals into stabilized equirectangular MP4s with the a1-stitch CLI. Use for A1 ingest, repeatable 360 preparation, batch conversion, or troubleshooting A1 metadata and stabilization; preserve the user's chosen editor for creative finishing.
+description: Inspect, calibrate, stitch Antigravity A1 INSV originals into stabilized equirectangular MP4s, and export GPS flight tracks as GPX with the a1-stitch CLI. Use for A1 ingest, flight-profile extraction, repeatable 360 preparation, batch conversion, or troubleshooting metadata and stabilization; preserve the user's chosen editor for creative finishing.
 ---
 
 # Prepare A1 footage
 
 Use `a1-stitch` for original-source preparation. It runs locally and returns JSON
 on stdout, with progress/errors on stderr. It produces complete spheres and
-receipts; it does not assemble a finished film. Version 0.3.0 includes checked optical
+receipts; it does not assemble a finished film. Version 0.4.0 adds GPX flight-track
+export. Image processing includes checked optical
 flow, local lens color balance, native-row rolling-shutter correction, experimental
 adaptive seams and mapped Studio comparisons. Image
 quality is still alpha around occlusion, severe parallax, vibration and camera
@@ -25,6 +26,27 @@ camera, two square lens tracks, frame rate, calibration and attitude coverage.
 An INSV suffix or a 2:1 image alone does not prove that footage is stitched.
 Preserve originals. Local reports/receipts may contain filenames and absolute
 paths; review/redact them before any authorized sharing.
+
+## Export a GPS flight profile
+
+Use `a1-stitch gpx SOURCE.insv --output NEW_FLIGHT.gpx` for standalone GPS
+extraction. It needs no calibration, Studio or FFmpeg. `--dry-run` reports usable
+fixes, gaps and coverage without writes; `--resume` verifies identical completed
+output and its `.gpx.receipt.json`. Missing GPS or no valid acquired positions
+is an error; do not invent a route from IMU or filenames.
+
+Add `--export-gpx` to a stitch command (or `"export_gpx": true` in its batch job)
+to also create `OUTPUT.mp4.gpx`, with the GPX checksum/summary in the MP4 receipt.
+This requires GPS to pass preflight; combined resume verifies both outputs.
+The GPX always covers GPS in the entire source recording, not just selected
+video frames and not necessarily an entire flight spanning multiple files.
+
+GPX contains position, recorded UTC and camera-reported elevation. Speed, course
+and sample/status fields use extensions that some readers ignore. Altitude's
+vertical datum is unverified; never label it height above ground, takeoff-relative
+height or surveyed MSL. Precise GPS-to-video clock mapping is not yet qualified.
+Void fixes, invalid positions and long gaps split segments; no interpolation is
+performed. Files contain real locations: path redaction does not anonymize them.
 
 ## Choose calibration
 

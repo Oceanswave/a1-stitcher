@@ -67,6 +67,12 @@ def parser():
     inspect.add_argument("source")
     inspect.add_argument("--output")
     inspect.add_argument("--redact-path", action="store_true")
+    gpx = sub.add_parser("gpx", help="Export the source recording's GPS track as GPX 1.1")
+    gpx.add_argument("source")
+    gpx.add_argument("--output", required=True)
+    gpx.add_argument("--gap-seconds", type=float, default=10.0)
+    gpx.add_argument("--resume", action="store_true")
+    gpx.add_argument("--dry-run", action="store_true")
     cal = sub.add_parser(
         "calibrate", help="Fit unit-specific geometry and attitude against a stitched reference"
     )
@@ -124,6 +130,11 @@ def parser():
         help="Reuse only an identical, checksum-verified completed job",
     )
     stitch.add_argument("--keep-work", action="store_true")
+    stitch.add_argument(
+        "--export-gpx",
+        action="store_true",
+        help="Also export the entire source GPS track to OUTPUT.mp4.gpx; requires valid GPS",
+    )
     stitch.add_argument("--dry-run", action="store_true")
     check = sub.add_parser(
         "verify", help="Validate sphere metadata, timing, color, checksum and full decode"
@@ -150,6 +161,16 @@ def main(argv=None):
     try:
         if args.command == "doctor":
             result = doctor()
+        elif args.command == "gpx":
+            from .gpx import export_gpx
+
+            result = export_gpx(
+                args.source,
+                args.output,
+                gap_seconds=args.gap_seconds,
+                resume=args.resume,
+                dry_run=args.dry_run,
+            )
         elif args.command == "inspect":
             from .insv import InsvReader
 
@@ -233,6 +254,7 @@ def main(argv=None):
             outputs = {Path(j.output).resolve() for j in jobs} | {
                 Path(str(j.output) + ".receipt.json").resolve() for j in jobs
             }
+            outputs |= {Path(str(j.output) + ".gpx").resolve() for j in jobs if j.export_gpx}
             inputs = (
                 {Path(j.source).resolve() for j in jobs}
                 | {Path(j.calibration).resolve() for j in jobs}
