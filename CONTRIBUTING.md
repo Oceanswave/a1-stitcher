@@ -11,6 +11,19 @@ metadata dumps. When changing lens geometry, timing, color or seams, include a
 visual comparison and state exactly what it establishes. Passing a unit test does
 not prove perceptual stitching or stabilization quality.
 
+CI runs Python 3.12 and 3.13 sequentially on the dedicated `rockybot-a1-stitcher`
+Linux runner. It uses preinstalled FFmpeg and uv, creates a separate Python
+environment for each job, and checks the built wheel outside the checkout.
+No GitHub-hosted runner is required. Linux skips the explicit Metal hardware
+tests; before a release, run the complete suite separately on a Metal-capable Mac
+and record that result alongside CI. Linux CI is not a substitute for GPU testing.
+
+The self-hosted job accepts repository branches, main pushes and release tags.
+Fork pull requests are skipped; a maintainer must review their changes and move
+them to a repository branch before CI execution. The repository also requires
+workflow approval for all outside contributors. Do not use `pull_request_target`
+to execute unreviewed fork code on the runner.
+
 Default to the best qualified quality settings; keep unqualified algorithms optional. Preserve originals and complete outputs;
 keep partial work isolated. Do not add another camera profile by copying A1 or X5
 constants. Unknown encodings should fail with an actionable error.
