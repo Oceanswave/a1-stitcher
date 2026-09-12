@@ -154,7 +154,7 @@ def sample_pixels(frame, u, v):
     columns = min(count, 4096)
     padding = (-count) % columns
     maps = [np.pad(m.ravel(), (0, padding)).reshape(-1, columns) for m in (u, v)]
-    return cv2.remap(frame, *maps, cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT).reshape(-1, 3)[
+    return cv2.remap(frame, *maps, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE).reshape(-1, 3)[
         :count
     ]
 
@@ -239,9 +239,9 @@ def blend_sphere(frames, lenses, lens1_to_lens0, world_to_lens0, width=2048):
         u, v, valid = project(local, lenses[i])
         # Dominance depends on angle to the optical axis, not output longitude.
         weight = np.clip((local[:, :, 2] + 0.1) / 0.2, 0, 1) * valid
-        warped = cv2.remap(frames[i], u, v, cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT).astype(
-            np.float32
-        )
+        warped = cv2.remap(
+            frames[i], u, v, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
+        ).astype(np.float32)
         result += warped * weight[:, :, None]
         total += weight
     covered = total > 1e-5
@@ -293,6 +293,15 @@ class TiledStitcher:
         self.sinlon, self.coslon = np.sin(longitude), np.cos(longitude)
 
     def stitch(self, frames, world_to_lens, angular_velocity=None):
+        if len(frames) != 2 or frames[0].dtype not in (np.uint8, np.uint16):
+            raise StitchError("Expected two uint8 or uint16 lens images")
+        if any(
+            frame.shape != (lens["width"], lens["width"], 3) or frame.dtype != frames[0].dtype
+            for frame, lens in zip(frames, self.lenses)
+        ):
+            raise StitchError("Lens image shape or precision differs from the calibration")
+        dtype = frames[0].dtype
+        maximum = np.iinfo(dtype).max
         rotation = np.asarray(world_to_lens, np.float32)
         if angular_velocity is not None:
             angular_velocity = np.asarray(angular_velocity, np.float32)
@@ -300,7 +309,7 @@ class TiledStitcher:
                 raise StitchError("Angular velocity must be a finite three-vector")
         if self.seam is not None:
             self.seam.prepare(frames, angular_velocity, self.readout_seconds)
-        output = np.empty((self.height, self.width, 3), np.uint8)
+        output = np.empty((self.height, self.width, 3), dtype)
         missing = 0
         for top in range(0, self.height, self.strip_height):
             bottom = min(top + self.strip_height, self.height)
@@ -343,5 +352,6 @@ class TiledStitcher:
             covered = total > 1e-5
             missing += int((~covered).sum())
             result /= np.maximum(total[:, :, None], 1e-5)
-            output[top:bottom] = np.clip(result, 0, 255).astype(np.uint8)
+            result = np.clip(result, 0, maximum)
+            output[top:bottom] = (np.rint(result) if dtype == np.uint16 else result).astype(dtype)
         return output, missing / (self.width * self.height)

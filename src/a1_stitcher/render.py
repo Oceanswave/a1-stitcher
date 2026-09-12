@@ -19,6 +19,7 @@ from scipy.spatial.transform import Rotation, Slerp
 
 from . import __version__
 from .calibration import load_calibration
+from .encoding import check_encoder, encoder_command, encoding_profile
 from .errors import ProcessError, StitchError
 from .gpx import decode_gps, gpx_bytes, verify_gpx
 from .insv import InsvReader
@@ -36,8 +37,8 @@ class Options:
     output: str
     first_frame: int
     frames: int
-    width: int = 2048
-    lens_width: int = 1440
+    width: int = 8192
+    lens_width: int = 0
     threads: int = 4
     timeout: float = 120
     no_stabilization: bool = False
@@ -46,6 +47,10 @@ class Options:
     seam: str = "flow"
     rolling_shutter: str = "auto"
     export_gpx: bool = False
+    encoding: str = "hevc10"
+    backend: str = "auto"
+    gyro_profile: str | None = None
+    gyro_anchor_seconds: float = 0.1
 
 
 def sensor_readout(metadata, fps, mode):
@@ -77,35 +82,46 @@ def plan(options):
         )
     if options.width < 64 or options.width > 8192 or options.width % 4:
         raise StitchError("Output width must be a multiple of 4 between 64 and 8192")
-    if options.lens_width < 32 or options.lens_width > 8192 or options.lens_width % 2:
+    if options.lens_width != 0 and (
+        options.lens_width < 32 or options.lens_width > 8192 or options.lens_width % 2
+    ):
         raise StitchError("Lens decode width must be even and between 32 and 8192")
     if not 1 <= options.threads <= 64 or not np.isfinite(options.timeout) or options.timeout <= 0:
         raise StitchError("Invalid thread count or timeout")
-    if not isinstance(options.no_stabilization, bool):
-        raise StitchError("no_stabilization must be boolean")
+    for name in ["no_stabilization", "resume", "keep_work"]:
+        if not isinstance(getattr(options, name), bool):
+            raise StitchError(f"{name} must be boolean")
     if not isinstance(options.export_gpx, bool):
         raise StitchError("export_gpx must be boolean")
     if options.seam not in ["flow", "adaptive", "feather"]:
         raise StitchError("Seam must be flow, adaptive or feather")
+    if options.backend not in ["auto", "cpu", "metal"]:
+        raise StitchError("Backend must be auto, cpu or metal")
     source = Path(options.source).resolve(strict=True)
     calibration_path = Path(options.calibration).resolve(strict=True)
     output = Path(options.output).absolute()
     receipt = Path(str(output) + ".receipt.json")
     gpx_path = Path(str(output) + ".gpx")
     protected = {source, calibration_path}
+    if options.gyro_profile:
+        protected.add(Path(options.gyro_profile).resolve(strict=True))
     if output.resolve() in protected or receipt.resolve() in protected:
         raise StitchError("Output or receipt would overwrite an input")
     if options.export_gpx and gpx_path.resolve() in protected:
         raise StitchError("GPX output would overwrite an input")
-    if output.suffix.lower() != ".mp4":
-        raise StitchError("Output must be an MP4 path")
+    encoding = encoding_profile(options.encoding)
+    if output.suffix.lower() != encoding["suffix"]:
+        raise StitchError(f"Encoding {options.encoding} requires a {encoding['suffix']} output")
     reader = InsvReader(source)
     metadata = reader.metadata()
     gps = decode_gps(reader) if options.export_gpx else None
     gps_data = gpx_bytes(gps) if gps else None
     calibration = load_calibration(calibration_path, metadata)
-    lenses_from_metadata(metadata, options.lens_width)
     profile = source_profile(source, metadata)
+    lens_width = options.lens_width or profile["width"]
+    if lens_width > profile["width"]:
+        raise StitchError("Lens decode width exceeds native source resolution")
+    lenses_from_metadata(metadata, lens_width)
     if options.first_frame + options.frames > profile["frames"]:
         raise StitchError("Requested frame range exceeds source video")
     times, _ = orientation37(reader)
@@ -117,16 +133,35 @@ def plan(options):
     ]
     if begin - readout / 2 < times[0] or end + readout / 2 > times[-1]:
         raise StitchError("Recorded attitude does not cover the selected video range")
+    if (
+        isinstance(options.gyro_anchor_seconds, bool)
+        or not np.isfinite(options.gyro_anchor_seconds)
+        or not 0.02 <= options.gyro_anchor_seconds <= 1
+    ):
+        raise StitchError("Gyro anchor interval must be 0.02 to 1 second")
+    gyro = None
+    if options.gyro_profile:
+        from .gyro import trajectory
+
+        motion, gyro = trajectory(reader, options.gyro_profile, options.gyro_anchor_seconds)
+        motion(np.array([begin - readout / 2, end + readout / 2]))
     ffmpeg = binary("ffmpeg")
+    check_encoder(ffmpeg, encoding)
     version = run([ffmpeg, "-version"]).decode().splitlines()[0]
+    from .metal import select_backend
+
+    backend = select_backend(options.backend)
     settings = {
         k: v
         for k, v in asdict(options).items()
         if k not in ["source", "calibration", "output", "resume", "keep_work", "timeout", "threads"]
     }
+    settings["lens_width"] = lens_width
     implementation = hashlib.sha256()
-    for module in sorted(Path(__file__).parent.glob("*.py")):
-        implementation.update(module.name.encode())
+    for module in sorted(
+        p for p in Path(__file__).parent.rglob("*") if p.suffix in [".py", ".metal", ".swift"]
+    ):
+        implementation.update(str(module.relative_to(Path(__file__).parent)).encode())
         implementation.update(module.read_bytes())
     recipe = dict(
         schema_version=1,
@@ -149,7 +184,10 @@ def plan(options):
             model="native-row-constant-angular-velocity-v1" if readout else "off",
         ),
         color="full-range SDR BT.709 to limited-range SDR BT.709; no LUT",
+        encoding=encoding,
         gps=gps["summary"] if gps else None,
+        gyro_profile=gyro,
+        backend=backend,
     )
     return dict(
         recipe=recipe,
@@ -159,6 +197,11 @@ def plan(options):
         warnings=[
             "Experimental image quality; review fast motion, seams and horizon before editorial use",
             "Source identity uses file stat and edge hashes, not a full-file cryptographic hash",
+            *(
+                [backend["reason"]]
+                if options.backend == "auto" and backend["name"] == "cpu"
+                else []
+            ),
         ],
         reader=reader,
         metadata=metadata,
@@ -230,12 +273,18 @@ def stitch(options, progress=None, dry_run=False):
             samples = (np.arange(options.frames) + options.first_frame) / float(fps) + job[
                 "calibration"
             ]["time_shift_seconds"]
-            pose = Slerp(times, poses)(samples)
+            interpolation = Slerp(times, poses)
+            if options.gyro_profile:
+                from .gyro import trajectory
+
+                interpolation, _ = trajectory(
+                    job["reader"], options.gyro_profile, options.gyro_anchor_seconds
+                )
+            pose = interpolation(samples)
             mount = Rotation.from_matrix(job["calibration"]["lens_mount"])
             readout = job["recipe"]["rolling_shutter"]["readout_seconds"]
             velocities = [None] * options.frames
             if readout:
-                interpolation = Slerp(times, poses)
                 first = interpolation(samples - readout / 2)
                 last = interpolation(samples + readout / 2)
                 velocities = (mount.inv() * first.inv() * last * mount).as_rotvec() / readout
@@ -245,8 +294,14 @@ def stitch(options, progress=None, dry_run=False):
             matrices = (world * pose * mount).as_matrix()
             if options.no_stabilization:
                 matrices[:] = matrices[0]
-            lenses = lenses_from_metadata(job["metadata"], options.lens_width)
-            stitcher = TiledStitcher(
+            lens_width = job["recipe"]["settings"]["lens_width"]
+            lenses = lenses_from_metadata(job["metadata"], lens_width)
+            renderer = TiledStitcher
+            if job["recipe"]["backend"]["name"] == "metal":
+                from .metal import MetalStitcher
+
+                renderer = MetalStitcher
+            stitcher = renderer(
                 lenses,
                 job["calibration"]["rotation_lens1_to_lens0"],
                 options.width,
@@ -256,18 +311,24 @@ def stitch(options, progress=None, dry_run=False):
             )
             cv2.setNumThreads(options.threads)
             ffmpeg = binary("ffmpeg")
-            untagged = work / "encoded.mp4"
-            ready = work / "ready.mp4"
+            encoding = job["recipe"]["encoding"]
+            high_precision = encoding["precision_bits"] == 16
+            raw_format = encoding["raw"]
+            raw_dtype = np.dtype("<u2") if high_precision else np.dtype("u1")
+            untagged = work / ("encoded" + encoding["suffix"])
+            ready = work / ("ready" + encoding["suffix"])
             missing_max = 0.0
             with ExitStack() as stack:
+                if hasattr(stitcher, "close"):
+                    stack.callback(stitcher.close)
                 log = stack.enter_context((work / "decode.log").open("wb"))
                 # Demux the original once. Two independent readers competed for
                 # external-drive I/O. Pair decoded frame ordinals explicitly;
                 # preflight requires matching constant-rate tracks/start times.
                 filters = (
                     ";".join(
-                        f"[0:v:{i}]scale={options.lens_width}:{options.lens_width}:"
-                        f"in_color_matrix=bt709,format=bgr24,setpts=N/({float(fps):.12f}*TB)[l{i}]"
+                        f"[0:v:{i}]scale={lens_width}:{lens_width}:"
+                        f"in_color_matrix=bt709,format={raw_format},setpts=N/({float(fps):.12f}*TB)[l{i}]"
                         for i in range(2)
                     )
                     + ";[l0][l1]hstack=inputs=2:shortest=1[pair]"
@@ -292,7 +353,7 @@ def stitch(options, progress=None, dry_run=False):
                     "-frames:v",
                     str(options.frames),
                     "-pix_fmt",
-                    "bgr24",
+                    raw_format,
                     "-f",
                     "rawvideo",
                     "-",
@@ -301,41 +362,9 @@ def stitch(options, progress=None, dry_run=False):
                 processes.append(decoder)
                 log = stack.enter_context((work / "encode.log").open("wb"))
                 encoder = subprocess.Popen(
-                    [
-                        ffmpeg,
-                        "-v",
-                        "error",
-                        "-n",
-                        "-f",
-                        "rawvideo",
-                        "-pixel_format",
-                        "bgr24",
-                        "-video_size",
-                        f"{options.width}x{options.width // 2}",
-                        "-framerate",
-                        str(fps),
-                        "-i",
-                        "-",
-                        "-vf",
-                        "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709",
-                        "-c:v",
-                        "libx264",
-                        "-threads",
-                        str(options.threads),
-                        "-preset",
-                        "fast",
-                        "-crf",
-                        "18",
-                        "-color_range",
-                        "tv",
-                        "-colorspace",
-                        "bt709",
-                        "-color_primaries",
-                        "bt709",
-                        "-color_trc",
-                        "bt709",
-                        str(untagged),
-                    ],
+                    encoder_command(
+                        ffmpeg, encoding, options.width, fps, options.threads, untagged
+                    ),
                     stdin=subprocess.PIPE,
                     stderr=log,
                     bufsize=0,
@@ -343,10 +372,14 @@ def stitch(options, progress=None, dry_run=False):
                 processes.append(encoder)
                 for number, matrix in enumerate(matrices, start=1):
                     pair = np.frombuffer(
-                        read_exact(decoder.stdout, options.lens_width**2 * 6, options.timeout),
-                        np.uint8,
-                    ).reshape(options.lens_width, options.lens_width * 2, 3)
-                    frames = [pair[:, : options.lens_width], pair[:, options.lens_width :]]
+                        read_exact(
+                            decoder.stdout,
+                            lens_width**2 * 6 * raw_dtype.itemsize,
+                            options.timeout,
+                        ),
+                        raw_dtype,
+                    ).reshape(lens_width, lens_width * 2, 3)
+                    frames = [pair[:, :lens_width], pair[:, lens_width:]]
                     sphere, missing = stitcher.stitch(frames, matrix.T, velocities[number - 1])
                     missing_max = max(missing_max, missing)
                     if missing > 0.001:
@@ -376,13 +409,15 @@ def stitch(options, progress=None, dry_run=False):
                             p.read_text(errors="replace")[-1500:] for p in work.glob("*.log")
                         )
                         raise ProcessError(f"Video process exited {code}: {errors}")
-            tag_equirectangular(untagged)
+            tag_equirectangular(untagged, prores_video_range=encoding["name"] == "prores")
             make_faststart(untagged, ready)
             expected = dict(
                 width=options.width,
                 height=options.width // 2,
                 nb_frames=options.frames,
                 fps=str(fps),
+                codec_name=encoding["codec"],
+                pix_fmt=encoding["pixel_format"],
             )
             checked = verify(
                 ready,
@@ -404,10 +439,11 @@ def stitch(options, progress=None, dry_run=False):
                 max_uncovered_fraction=missing_max,
                 seam_diagnostics=stitcher.seam.report() if stitcher.seam is not None else None,
                 elapsed_seconds=time.monotonic() - started,
+                gpu_kernel_seconds=getattr(stitcher, "gpu_seconds", None),
                 quality_status="experimental; technical verification is not perceptual acceptance",
                 warnings=job["warnings"],
                 limitations=[
-                    "8-bit SDR only",
+                    "Only tested 8-bit SDR inputs; higher-precision processing does not add captured dynamic range",
                     "Per-row correction assumes locally constant angular velocity; no high-rate vibration reconstruction"
                     if readout
                     else "Per-row rolling-shutter correction disabled or metadata absent",
@@ -415,7 +451,9 @@ def stitch(options, progress=None, dry_run=False):
                     if options.seam in ["flow", "adaptive"]
                     else "Angular feather seams; no optical-flow parallax correction",
                     "No camera/propeller removal",
-                    "50 Hz recorded attitude; no high-rate IMU fusion",
+                    "Experimental gyro interpolation anchored to recorded attitude; high-frequency image timing not yet qualified"
+                    if options.gyro_profile
+                    else "50 Hz recorded attitude; no high-rate IMU fusion",
                 ],
             )
             ready_gpx = work / "flight.gpx"

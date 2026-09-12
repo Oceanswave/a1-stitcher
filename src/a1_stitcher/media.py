@@ -84,6 +84,9 @@ def verify(path, *, expected=None, receipt=None, full=True, timeout=600):
                 raise StitchError(f"Output {key} does not match the planned conversion")
         if Fraction(video["r_frame_rate"]) != Fraction(expected["fps"]):
             raise StitchError("Output frame rate differs from source")
+        for key in ["codec_name", "pix_fmt"]:
+            if key in expected and video.get(key) != expected[key]:
+                raise StitchError(f"Output {key} differs from the requested encoding")
     if any(
         video.get(key) != value
         for key, value in [
@@ -115,4 +118,6 @@ def verify(path, *, expected=None, receipt=None, full=True, timeout=600):
         output_sha256=checksum,
         full_decode=full,
         color="limited-range SDR BT.709",
+        codec=video["codec_name"],
+        pixel_format=video["pix_fmt"],
     )

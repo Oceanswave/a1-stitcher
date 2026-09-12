@@ -113,7 +113,7 @@ def test_single_reader_pairs_the_requested_original_lens_frames(
         return data
 
     monkeypatch.setattr(module, "read_exact", capture)
-    stitch(options(synthetic_camera, tmp_path / "paired.mp4"))
+    stitch(options(synthetic_camera, tmp_path / "paired.mp4", encoding="h264"))
     for ordinal in [0, 3]:
         for lens in range(2):
             expected = decode_frame(

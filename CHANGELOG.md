@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0
+
+- Default to 8K/native lens decoding and a 16-bit image pipeline with 10-bit HEVC.
+  Add 10-bit ProRes 422 HQ MOV; retain explicit H.264 reviews.
+- Add an independent Swift/Metal renderer with automatic preflight selection,
+  CPU fallback receipts and explicit backend controls. Package native source.
+- Add per-unit rigid gyro calibration, held-out/transfer checks and optional
+  raw-gyro interpolation anchored to recorded attitude. Keep it experimental.
+- Prevent cubic interpolation from mixing black border pixels into valid lens data.
+- Extend codec verification, batch gyro-profile path handling, synthetic tests
+  and the discoverable skill's complete options/reference documentation.
+- Write explicit limited-range BT.709 ProRes container metadata for FFmpeg 6.1
+  compatibility; reject missing or conflicting color descriptions.
+- Run Python 3.12/3.13 CI on the dedicated Rockybot Linux runner, retaining
+  separate full Metal testing on macOS before release.
+- Preserve original files, no-overwrite outputs, GPX sidecars, calibration boundaries
+  and the distinction between technical verification and perceptual review.
+
 ## 0.4.0
 
 Export recorded flight tracks with `a1-stitch gpx` or `stitch --export-gpx`
