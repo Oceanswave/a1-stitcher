@@ -1,7 +1,7 @@
 # Original-only preparation, pilot view and TIFF validation
 
-This is the unreleased 0.9 development implementation. The previous 0.8 release
-still provides the explicit sensor-calibration workflow. These checks establish
+This documents the implementation released as 0.9.0, including its development
+qualification. The explicit sensor-calibration workflow from 0.8 remains available. These checks establish
 specific behavior; they do not establish universal A1 firmware support or
 Studio-equivalent image quality.
 
@@ -83,4 +83,5 @@ The fresh environment resolved NumPy 2.5.3, OpenCV 5.0.0.93, SciPy 1.18.1,
 Pillow 12.3.0 and tifffile 2026.9.9. No checkout import, Studio application,
 reference master or manually supplied calibration was used in these exports.
 The short 8K check establishes package/format operation, not native-resolution
-whole-shot motion acceptance. No new release is implied.
+whole-shot motion acceptance. Version 0.9.0 promotes the same processing code;
+its version labels and release documentation replace the development labels.

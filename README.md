@@ -10,7 +10,7 @@ sphere, and verifies the result. Pilot-follow viewing is the default: video expo
 include a timed quaternion path and a local interactive player. Use `--view fixed`
 to export just the stabilized sphere and receipt.
 
-**Status: alpha. The 0.9 development build adds original-only setup, guided pilot
+**Status: alpha. Version 0.9.0 adds original-only setup, guided pilot
 viewing and 16-bit panorama TIFFs.** Video defaults remain 8192×4096, native lens
 frames, 16-bit processing, 10-bit HEVC, checked flow seams and automatic Metal on
 supported Macs. The portable CPU renderer remains available. Original-only mode
@@ -120,10 +120,8 @@ python3 -m venv .venv
 .venv/bin/pip install .
 .venv/bin/a1-stitch doctor
 
-# The last tagged release is 0.8.0; it does not include the 0.9 features above.
-# Install this checkout to use the development command set.
-# Or install the earlier tagged source as an isolated CLI with uv
-uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.8.0'
+# Or install the tagged source as an isolated CLI with uv
+uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.9.0'
 a1-stitch doctor
 ```
 

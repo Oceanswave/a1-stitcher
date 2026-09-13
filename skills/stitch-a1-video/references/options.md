@@ -1,6 +1,6 @@
 # A1 CLI options and preparation handoff
 
-The 0.9 development CLI command line and JSON batch jobs share `Options` fields. Check installed
+The 0.9.0 CLI command line and JSON batch jobs share `Options` fields. Check installed
 help/version before using this reference. Supported originals need no vendor runtime or manual calibration; Metal needs macOS, a usable GPU and Swift command line tools.
 
 ## Stitch options

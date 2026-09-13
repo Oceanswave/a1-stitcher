@@ -7,7 +7,7 @@ description: Prepare Antigravity A1 INSV originals as stabilized 360 spheres wit
 
 Use `a1-stitch` for original-source preparation. JSON goes to stdout and
 progress/errors to stderr. It produces full spheres, guided view paths, RGB16 TIFFs, GPS sidecars and receipts;
-it does not assemble a finished film. **This skill describes the 0.9 development command set.**
+it does not assemble a finished film. **This skill describes the 0.9.0 command set.**
 Check `a1-stitch --version` and `a1-stitch stitch --help` before using new flags;
 an older installed CLI must be updated from the public repository or a checked
 local build. Never silently substitute another application named Antigravity.

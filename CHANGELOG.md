@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.0.dev1 — unreleased
+## 0.9.0 — 2026-09-12
 
 - Default to pilot-follow companions: presentation-timed quaternion JSON and a
   local guided player, with free look, seeking and smooth return. `--view fixed`
