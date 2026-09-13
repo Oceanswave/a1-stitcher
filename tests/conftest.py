@@ -75,6 +75,7 @@ def metadata(width=128):
         offset_v3=[2, *lens(0), *lens(1), 0],
         dimension=dict(x=width, y=width),
         first_frame_timestamp_us=10_000_000,
+        propeller_guard_status=0,
     )
 
 
@@ -189,10 +190,14 @@ def synthetic_camera(tmp_path_factory):
             pb(20, fps),
             pb(24, meta["first_frame_timestamp_us"]),
             pb(54, "_".join(map(str, meta["offset_v3"]))),
+            pb(175, 0),
         ]
     )
     with source.open("ab") as stream:
-        stream.write(trailer([(1, record), (37, attitudes)]))
+        exposure = b"".join(
+            struct.pack("<Qd", 10_000_000 + round(i / fps * 1e6), 0.001) for i in range(-2, count)
+        )
+        stream.write(trailer([(1, record), (4, exposure), (37, attitudes)]))
     calibration = dict(
         schema_version=1,
         camera_type=meta["camera_type"],

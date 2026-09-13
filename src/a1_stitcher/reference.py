@@ -86,7 +86,15 @@ def fit_spheres(source, target):
 
 
 def calibrate(
-    source, reference, first_source_frame, samples, holdouts, output, evidence=None, progress=None
+    source,
+    reference,
+    first_source_frame,
+    samples,
+    holdouts,
+    output,
+    evidence=None,
+    progress=None,
+    frame_clock="nominal",
 ):
     source, reference = Path(source).resolve(strict=True), Path(reference).resolve(strict=True)
     output = Path(output).absolute()
@@ -111,6 +119,13 @@ def calibrate(
     fps = Fraction(profile["fps"])
     if Fraction(refs[0]["r_frame_rate"]) != fps:
         raise StitchError("Original and reference frame rates differ")
+    if frame_clock not in ["nominal", "exposure"]:
+        raise StitchError("Frame clock must be nominal or exposure")
+    clock = None
+    if frame_clock == "exposure":
+        from .exposure import ExposureClock
+
+        clock = ExposureClock(reader, fps)
     indices = sorted(samples + holdouts)
     if (
         indices[-1] >= int(refs[0]["nb_frames"])
@@ -160,16 +175,17 @@ def calibrate(
             progress(dict(event="calibration_frame", frame=index, **match))
     training = [r for r in observations if r["reference_frame"] in samples]
     held = [r for r in observations if r["reference_frame"] in holdouts]
-    mount, shift = fit_gravity(reader, training)
-    train_score = score_gravity(reader, training, mount, shift)
-    held_score = score_gravity(reader, held, mount, shift)
+    mount, shift = fit_gravity(reader, training, clock)
+    train_score = score_gravity(reader, training, mount, shift, clock)
+    held_score = score_gravity(reader, held, mount, shift, clock)
     warnings = ["Sampled geometry checks do not establish complete motion or seam quality"]
     if held_score["maximum_degrees"] > 1:
         warnings.append(
             "Holdout vertical error exceeds 1 degree; inspect rapid motion, time alignment and rolling shutter"
         )
     result = dict(
-        schema_version=1,
+        schema_version=2 if clock else 1,
+        frame_clock=clock.kind if clock else "nominal",
         camera_type="Antigravity A1",
         lens_fingerprint=lens_fingerprint(metadata),
         lens_mount=mount.as_matrix().tolist(),

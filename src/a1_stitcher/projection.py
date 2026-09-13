@@ -277,7 +277,15 @@ class TiledStitcher:
     """Bound memory use by projecting strips; retain the full sphere in one pass."""
 
     def __init__(
-        self, lenses, relative, width, strip_height=64, seam="feather", fps=30, readout_seconds=0
+        self,
+        lenses,
+        relative,
+        width,
+        strip_height=64,
+        seam="feather",
+        fps=30,
+        readout_seconds=0,
+        occlusion=None,
     ):
         if width < 64 or width > 8192 or width % 4 or strip_height < 1:
             raise StitchError("Sphere width must be a multiple of 4 between 64 and 8192")
@@ -289,6 +297,11 @@ class TiledStitcher:
         if not np.isfinite(readout_seconds) or not 0 <= readout_seconds <= 0.1:
             raise StitchError("Invalid sensor readout duration")
         self.readout_seconds = readout_seconds
+        self.visibility = None
+        if occlusion is not None:
+            from .occlusion import VisibilityMasks
+
+            self.visibility = VisibilityMasks(occlusion, lenses)
         if seam not in ["feather", "flow", "adaptive"]:
             raise StitchError("Seam must be flow, adaptive or feather")
         self.seam = None
@@ -318,7 +331,7 @@ class TiledStitcher:
 
         rows = validate_rows(row_quaternions)
         if self.seam is not None:
-            self.seam.prepare(frames, angular_velocity, self.readout_seconds, rows)
+            self.seam.prepare(frames, angular_velocity, self.readout_seconds, rows, self.visibility)
         output = np.empty((self.height, self.width, 3), dtype)
         missing = 0
         for top in range(0, self.height, self.strip_height):
@@ -336,6 +349,45 @@ class TiledStitcher:
             total = np.zeros(shape, np.float32)
             if self.seam is not None:
                 corrected, alpha, gains = self.seam.sample(rays)
+            if self.visibility is not None:
+                from .occlusion import visible_weights
+
+                maps, preferred, eligibility = [], [], []
+                for i, lens in enumerate(self.lenses):
+                    basis = rays if self.seam is None else corrected[i]
+                    local = basis if i == 0 else basis @ self.relative
+                    velocity = angular_velocity
+                    if i and velocity is not None:
+                        velocity = np.asarray(velocity) @ self.relative
+                    u, v, valid = project_scan(
+                        local,
+                        lens,
+                        velocity,
+                        self.readout_seconds,
+                        None if rows is None else rows[i],
+                    )
+                    maps.append((u, v))
+                    preferred.append(
+                        np.clip((local[..., 2] + 0.1) / 0.2, 0, 1)
+                        if self.seam is None
+                        else (alpha if i == 0 else 1 - alpha)
+                    )
+                    eligibility.append(valid * self.visibility.sample(i, u, v))
+                weights = visible_weights(np.array(preferred), np.array(eligibility))
+                for i, (u, v) in enumerate(maps):
+                    warped = sample_pixels(frames[i], u, v).reshape(*shape, 3)
+                    if self.seam is not None:
+                        warped = warped * gains[i]
+                    result += warped * weights[i, ..., None]
+                total = weights.sum(axis=0)
+                if np.any(total <= 1e-5):
+                    raise StitchError(
+                        "Visibility masks leave pixels unavailable in both lenses; no detail was invented"
+                    )
+                output[top:bottom] = np.rint(np.clip(result / total[..., None], 0, maximum)).astype(
+                    dtype
+                )
+                continue
             for i, lens in enumerate(self.lenses):
                 basis = rays if self.seam is None else corrected[i]
                 local = basis if i == 0 else basis @ self.relative

@@ -28,7 +28,9 @@ indexed records still require consistent trailing headers.
 ## Records used
 
 - **1:** protobuf camera metadata, including the two-lens calibration and video
-  timebase. Only selected field numbers are interpreted. Serial/GPS fields are
+  timebase. Only selected field numbers are interpreted. Field 175 (varint) reports
+  propeller-guard status: observed enum 0 none, 1 wear, 2 large, 3 dongle. The
+  masks require a known matching status; absent values are not assumed zero. Serial/GPS fields are
   not emitted by the inspector.
 - **3:** observed raw IMU samples, `<Q6H`, 20 bytes each. Values are unsigned with
   an offset of 32768; ranges are supplied by metadata. Optional per-unit gyro
@@ -62,12 +64,21 @@ video frame, including samples before video frame zero. Inspection validates
 record boundaries, increasing timestamps, finite positive durations and cadence.
 Reports include min/median/p95/max duration, gaps, and half the duration range.
 
-Exposure time and sensor readout are different quantities. A duration-dependent
-midpoint adjustment is relevant to gyro alignment, but the existing lens/mount
-profile already fits a constant video-to-attitude offset. Exposure start/end
-semantics and per-frame image alignment have not been qualified. Inspection
-therefore reports `applied_to_frame_clock: false`; no extra half-exposure offset
-is silently added. Timestamps are relative to the first video timestamp, not UTC.
+Exposure time and sensor readout are different quantities. Schema-1 calibration
+keeps nominal frame time plus its fitted offset. Inspection alone therefore
+reports `applied_to_frame_clock: false`. Schema 2, created only by refitting with
+`calibrate --frame-clock exposure`, uses `exposure-midpoint-v1`: the frame's
+record timestamp minus half its shutter duration, then the newly fitted offset.
+The recipe reports the active clock. Timestamps are relative to video zero, not UTC.
+
+Two tested sources contain a unique exact first-video timestamp at exposure
+index 8. The clock requires that exact anchor and ordinal agreement within
+one tenth of a frame for every following sample. Missing samples/drift are
+rejected rather than shifting later indices; requested indices must be covered.
+Durations must not exceed 1.01 frame periods. The calibrated clock applies to
+center pose, heading reference and row correction on CPU/Metal. It is not a
+change to output video cadence, and image-timing qualification remains limited.
+See [the 0.7 measurements](quality-v0.7.md).
 
 ## GPS record 7
 
@@ -137,8 +148,10 @@ bounded local alignment and color matching before blending. The optional
 `adaptive` mode also moves the seam along a temporally limited path through areas
 of better lens agreement; `feather` retains angular blending without those flow
 corrections. These operations do not solve camera translation, severe near-subject
-parallax/occlusion, or propeller/body removal. See the
-[current quality evidence](quality-v0.3.md) for measured behavior and limits.
+parallax/occlusion. Optional native visibility profiles exclude housing/guard
+pixels after row projection and select the other lens when available; they
+reject holes instead of reconstructing doubly occluded detail. See the
+[current quality evidence](quality-v0.7.md) for measured behavior and limits.
 
 ## Output metadata
 

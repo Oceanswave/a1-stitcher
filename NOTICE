@@ -39,3 +39,9 @@ The 0.3.0 periodic seam search is an independently authored dynamic program.
 Additional read-only Studio feature/symbol inspection exposed seam-finder and
 propeller-guard capability names; these are clues, not evidence of identical
 algorithms. No vendor masks or learned models are distributed or used.
+
+The 0.7.0 exposure midpoint clock and native visibility masks are independently
+authored. Read-only inspection of Studio timing/visibility interfaces and metadata
+field-number constants informed format hypotheses. The implementation does not
+load vendor libraries, copy vendor algorithms or distribute per-camera masks.
+See docs/quality-v0.7.md for observations, official guide links and measured limits.

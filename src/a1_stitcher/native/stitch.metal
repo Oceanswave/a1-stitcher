@@ -79,6 +79,8 @@ kernel void stitch(const device uchar* first [[buffer(0)]],const device uchar* s
     float alpha=smooth(((latitude-offset)/(PI*1.2f/180)+1)/2);
     bool active=abs(latitude-offset)<PI*1.2f/180;
     float taper=1-smooth(abs(latitude)/(PI*8/180));float3 sum=0;float total=0;
+    int maskSize=int(p[7]),maskBase=int(p[6])*8;
+    float2 coordinates[2];float weights[2]={0,0},eligible[2]={0,0};
     for(int i=0;i<2;i++) {
         float3 direction=ray;
         if(flow && active) {
@@ -90,12 +92,23 @@ kernel void stitch(const device uchar* first [[buffer(0)]],const device uchar* s
         }
         float3 local=i==0?direction:mtv(p+17,direction);
         float weight=flow?(i==0?alpha:1-alpha):clamp((local.z+0.1f)/0.2f,0.0f,1.0f);
-        if(weight<=0)continue;
+        if(weight<=0 && maskSize==0)continue;
         float3 velocity=float3(p[26],p[27],p[28]);if(i)velocity=mtv(p+17,velocity);
         const device float* lens=p+30+i*11;
-        float3 uv=projectScan(local,lens,velocity,p[29],rows+i*int(p[6])*4,int(p[6]));weight*=uv.z;
-        if(weight<=0)continue;
-        float3 warped=sample(i==0?first:second,int(lens[10]),uv.xy,high);
+        float3 uv=projectScan(local,lens,velocity,p[29],rows+i*int(p[6])*4,int(p[6]));
+        coordinates[i]=uv.xy;eligible[i]=uv.z;
+        if(maskSize>0 && uv.z>0) {
+            float2 xy=clamp(uv.xy/(lens[10]-1)*(maskSize-1),0.0f,float(maskSize-1));
+            eligible[i]*=field(rows,maskBase+i*maskSize*maskSize,maskSize,maskSize,1,0,xy.x,xy.y);
+        }
+        weights[i]=weight*eligible[i];
+    }
+    if(maskSize>0 && weights[0]+weights[1]<=1e-5f) {
+        weights[0]=eligible[0];weights[1]=eligible[1];
+    }
+    for(int i=0;i<2;i++) {
+        float weight=weights[i];if(weight<=0)continue;
+        float3 warped=sample(i==0?first:second,int(p[40+i*11]),coordinates[i],high);
         if(flow)for(int c=0;c<3;c++)warped[c]*=exp(min((i==0?1.0f:-1.0f)*field(a,area*6,sw,1,3,c,fx,0),0.0f)*taper);
         sum+=warped*weight;total+=weight;
     }
@@ -103,5 +116,5 @@ kernel void stitch(const device uchar* first [[buffer(0)]],const device uchar* s
     sum=clamp(sum/max(total,1e-5f),0.0f,high?65535.0f:255.0f);
     int n=(pos.y*width+pos.x)*3;
     if(high){device ushort* out=(device ushort*)output;for(int c=0;c<3;c++)out[n+c]=ushort(rint(sum[c]));}
-    else for(int c=0;c<3;c++)output[n+c]=uchar(sum[c]);
+    else for(int c=0;c<3;c++)output[n+c]=uchar(maskSize>0?rint(sum[c]):sum[c]);
 }

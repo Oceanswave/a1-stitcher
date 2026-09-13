@@ -130,7 +130,7 @@ class MetalStitcher(TiledStitcher):
         analysis = np.zeros(1, np.float32)
         if self.seam is not None:
             s = self.seam
-            s.prepare(frames, angular_velocity, self.readout_seconds, rows)
+            s.prepare(frames, angular_velocity, self.readout_seconds, rows, self.visibility)
             p[3:5] = s.width, s.height
             ratio = (
                 s.log_ratio if s.log_ratio is not None else np.zeros((1, s.width, 3), np.float32)
@@ -140,11 +140,13 @@ class MetalStitcher(TiledStitcher):
             analysis = np.concatenate(
                 [v.ravel() for v in [*s.flows, *s.confidence, ratio, path]]
             ).astype(np.float32)
-        arrays = [np.ascontiguousarray(f) for f in frames] + [
-            p,
-            analysis,
-            np.zeros(1, np.float32) if rows is None else rows.ravel(),
-        ]
+        extras = np.empty(0, np.float32) if rows is None else rows.ravel()
+        if self.visibility is not None:
+            p[7] = self.visibility.maps[0].shape[0]
+            extras = np.concatenate([extras, *[m.ravel() for m in self.visibility.maps]])
+        if not extras.size:
+            extras = np.zeros(1, np.float32)
+        arrays = [np.ascontiguousarray(f) for f in frames] + [p, analysis, extras]
         pointers = (ctypes.c_void_p * 5)(*[v.ctypes.data for v in arrays])
         sizes = (ctypes.c_int64 * 5)(*[v.nbytes for v in arrays])
         output = np.empty((self.height, self.width, 3), frames[0].dtype)
@@ -166,6 +168,10 @@ class MetalStitcher(TiledStitcher):
             self.close()
             raise StitchError(
                 f"Metal render failed ({code}): {error.value.decode(errors='replace')}"
+            )
+        if self.visibility is not None and metrics[1]:
+            raise StitchError(
+                "Visibility masks leave pixels unavailable in both lenses; no detail was invented"
             )
         self.gpu_seconds += metrics[0]
         return output, metrics[1] / (self.width * self.height)

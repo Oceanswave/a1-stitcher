@@ -36,8 +36,14 @@ def rotation_matrix(value, name):
 
 
 def validate_calibration(data, metadata=None):
-    if not isinstance(data, dict) or data.get("schema_version") != 1:
-        raise StitchError("Unsupported calibration schema; expected schema_version 1")
+    if not isinstance(data, dict) or data.get("schema_version") not in (1, 2):
+        raise StitchError("Unsupported calibration schema; expected schema_version 1 or 2")
+    if (data["schema_version"] == 2 and data.get("frame_clock") != "exposure-midpoint-v1") or (
+        data["schema_version"] == 1 and data.get("frame_clock", "nominal") != "nominal"
+    ):
+        raise StitchError(
+            "Calibration frame clock does not match its schema; refit exposure timing"
+        )
     if data.get("camera_type") != "Antigravity A1":
         raise StitchError("Calibration is not for Antigravity A1")
     try:
@@ -69,6 +75,8 @@ def load_calibration(path, metadata=None):
 
 def migrate_legacy(data):
     """Explicit migration of the initial local prototype's calibration document."""
+    if data.get("frame_clock", "nominal") != "nominal" or data.get("schema_version", 1) == 2:
+        raise StitchError("Cannot migrate an exposure calibration to the legacy nominal clock")
     names = [
         "camera_type",
         "lens_fingerprint",
@@ -88,12 +96,14 @@ def migrate_legacy(data):
     return validate_calibration(result)
 
 
-def fit_gravity(reader, observations):
+def fit_gravity(reader, observations, frame_clock=None):
     if len(observations) < 6:
         raise StitchError("At least six matched observations are required for calibration")
     frames = np.asarray([r["raw_seconds"] for r in observations], dtype=float)
     if not np.isfinite(frames).all() or np.any(np.diff(frames) <= 0):
         raise StitchError("Calibration observation times must be finite and increasing")
+    if frame_clock is not None:
+        frames = frame_clock.at_video_times(frames)
     lens_down = (
         Rotation.from_matrix(
             [rotation_matrix(r["lens_to_reference"], "observation") for r in observations]
@@ -125,9 +135,12 @@ def fit_gravity(reader, observations):
     return Rotation.from_rotvec(fit.x[:3]), float(fit.x[3])
 
 
-def score_gravity(reader, observations, mount, shift):
+def score_gravity(reader, observations, mount, shift, frame_clock=None):
     times, poses = orientation37(reader)
-    frames = np.asarray([r["raw_seconds"] for r in observations], dtype=float) + shift
+    frames = np.asarray([r["raw_seconds"] for r in observations], dtype=float)
+    if frame_clock is not None:
+        frames = frame_clock.at_video_times(frames)
+    frames = frames + shift
     if not len(frames) or frames.min() < times[0] or frames.max() > times[-1]:
         raise StitchError("Scored observations exceed recorded attitude coverage")
     down = (

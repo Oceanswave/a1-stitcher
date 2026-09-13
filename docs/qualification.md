@@ -62,16 +62,16 @@ the checkout so an editable source import cannot hide packaging mistakes.
 Inspect the intended interval in motion, including seams through nearby subjects,
 horizon changes, body/propeller visibility and subject shape. Keep the original,
 source-frame mapping, calibration and receipt. Review especially fast maneuvers;
-native-row rolling-shutter correction now uses the embedded readout duration,
-but assumes locally constant angular velocity from the recorded attitude track.
-There is no high-rate IMU fusion or camera/propeller removal yet. The new overlap
-alignment and local color matching reduce artifacts but cannot reconstruct
-occluded detail. See [0.2.0 quality evidence](quality-v0.2.md) and the
-[0.3.0 Studio comparison pass](quality-v0.3.md). Adaptive seam placement remains
-opt-in; it is not a camera/propeller mask or occlusion reconstruction.
+native-row correction uses embedded readout duration with average-rate motion
+by default, or optional row trajectories. Anchored raw gyro, refitted exposure
+midpoints and camera-bound visibility masks are available as experimental
+options. None establishes high-frequency image timing or full aircraft-removal
+parity. Visibility masks can select actual alternate-lens pixels but cannot
+reconstruct doubly occluded detail. Adaptive seams remain a separate option.
+See the [0.7 evidence](quality-v0.7.md) and the linked earlier measurements.
 
-The original prototype output path was 8-bit SDR BT.709. I-Log/D-Log, HDR, higher-bit-depth
-processing, audio preservation, other camera models, and broad hardware/firmware
+The original prototype output path was 8-bit SDR BT.709. Current 16-bit processing and 10-bit output
+reduce new rounding; they do not establish log/HDR support. I-Log/D-Log, HDR, audio preservation, other camera models, and broad hardware/firmware
 coverage are not qualified. The application rejects unrecognized profiles rather
 than applying an assumed transform. Source color tags alone do not establish a
 new model's color science.

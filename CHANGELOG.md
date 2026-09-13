@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+- Add exposure-midpoint synchronization through explicitly refitted schema-2
+  calibration. Check frame-zero anchoring, cadence, durations and coverage;
+  preserve nominal calibration defaults and prevent silent clock downgrade.
+- Add camera/accessory-bound native visibility masks for housing/guard exclusion,
+  alternate-lens replacement and uncovered-region failure on CPU and Metal.
+- Add `mask-template`, `mask-preview` and `stitch --occlusion-profile`, including
+  batch paths, complete profile receipts and reuse identity.
+- Document Studio observations, mixed reference residuals, two matched moving
+  comparisons and the limits of authored masks versus automatic propeller removal.
+
 ## 0.6.0
 
 - Add experimental 33-sample quaternion rolling-shutter trajectories on CPU

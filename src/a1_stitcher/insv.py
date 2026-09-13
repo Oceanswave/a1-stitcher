@@ -110,7 +110,7 @@ class InsvReader:
             56: "original_offset_v3",
         }
         expected_wires = {number: 2 for number in strings}
-        expected_wires.update({number: 0 for number in [20, 24, 29, 40, 42, 43, 62]})
+        expected_wires.update({number: 0 for number in [20, 24, 29, 40, 42, 43, 62, 175]})
         expected_wires.update({25: 1, 28: 1, 19: 2, 27: 2, 31: 2, 65: 2})
         for number, entries in fields.items():
             if number in expected_wires and any(
@@ -134,6 +134,7 @@ class InsvReader:
             42: "flowstate_online",
             43: "is_dewarp",
             62: "is_raw_gyro",
+            175: "propeller_guard_status",
         }.items():
             if number in fields:
                 data[name] = fields[number][0][1]
