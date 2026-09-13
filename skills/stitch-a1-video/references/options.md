@@ -1,17 +1,18 @@
 # A1 CLI options and preparation handoff
 
-The 0.8 CLI command line and JSON batch jobs share `Options` fields. Check installed
-help/version before using this reference. No vendor runtime is required after
-calibration; Metal needs macOS, a usable GPU and Swift command line tools.
+The 0.9 development CLI command line and JSON batch jobs share `Options` fields. Check installed
+help/version before using this reference. Supported originals need no vendor runtime or manual calibration; Metal needs macOS, a usable GPU and Swift command line tools.
 
 ## Stitch options
 
-Required: `SOURCE`, `--calibration PATH`, `--first-frame N`, `--frames N`,
+Required: `SOURCE`, `--first-frame N`, `--frames N`,
 `--output PATH`. Paths in CLI calls use the current working directory; batch
 paths resolve against the manifest directory. Outputs and receipts never overwrite.
 
 | Option | Default | Effect |
 | --- | --- | --- |
+| `--calibration PATH` | absent | Original-only setup when omitted; an explicit schema 1–3 profile selects advanced sensor stabilization. |
+| `--view pilot\|fixed` | `pilot` | Write guided JSON/HTML companions by default; fixed opts out while retaining the stabilized sphere. |
 | `--width N` | `8192` | Full sphere width; height is N/2. Multiples of four, 64–8192. |
 | `--lens-width N` | `0` | Zero selects native source resolution; explicit widths must be even, at least 32 and no larger than native. |
 | `--encoding hevc10` | `hevc10` | MP4, libx265 CRF 12/medium, 10-bit 4:2:0; 16-bit decode/remap pipeline. |
@@ -24,21 +25,21 @@ paths resolve against the manifest directory. Outputs and receipts never overwri
 | `--seam multiband` | — | Experimental three-band overlap blend and bounded per-frame color changes; no temporal pixel averaging. |
 | `--seam adaptive` | — | Experimental moving overlap path with temporal constraints. |
 | `--seam feather` | — | Legacy angular feather for comparisons or unsuitable flow. |
-| `--rolling-shutter auto` | `auto` | Use embedded readout duration and native sensor-row timing. |
+| `--rolling-shutter auto` | `auto` | With an explicit sensor profile, use embedded readout duration and native sensor-row timing. Automatic schema-4 mode disables this correction. |
 | `--rolling-shutter-model trajectory` | — | Experimental: use 33 orientation samples across readout, transformed separately for each native lens. |
 | `--rolling-shutter-model velocity` | `velocity` | Qualified average angular velocity; retained because trajectory results are mixed on real footage. |
 | `--heading-reference-frame N` | `0` | Original frame defining fixed sphere yaw for every export from this source; `-1` uses the selected start. Must be covered by attitude/gyro and video. |
 | `--rolling-shutter off` | — | Disable row correction for a controlled comparison. |
 | `--occlusion-profile PATH` | absent | Camera/accessory-bound native visibility masks; alternate-lens replacement, fail on holes. See the profile section below. |
-| `--gyro-profile PATH` | absent | Experimental anchored raw-gyro interpolation; requires a matching per-unit profile. |
+| `--gyro-profile PATH` | absent | Experimental anchored raw-gyro interpolation; requires an explicit sensor calibration and matching per-unit profile. |
 | `--gyro-anchor-seconds N` | `0.1` | With a gyro profile, use recorded-attitude anchors spaced by 0.02–1 second; 0.02 retains all recorded anchors. |
-| `--no-stabilization` | false | Hold global orientation at the first pose for diagnostics; row correction is a separate setting. |
+| `--no-stabilization` | false | Hold global orientation at the first pose for diagnostics; requires `--view fixed`. Row correction is separate. |
 | `--export-gpx` | false | Export the entire source GPS to `OUTPUT.gpx`, e.g. `sphere.mp4.gpx`. GPS must pass preflight. |
 | `--threads N` | `4` | CPU/FFmpeg worker limit, 1–64. Does not control GPU core count. |
 | `--timeout SECONDS` | `120` | Stalled frame/process bound, not a whole-job wall-time budget. |
-| `--resume` | false | Verify/reuse only a matching completed video/receipt and requested GPX. |
+| `--resume` | false | Verify/reuse matching video, receipt, guided companions and requested GPX. |
 | `--keep-work` | false | Retain temporary files and logs for diagnosis. |
-| `--dry-run` | false | Preflight recipe, dependencies, profiles and selected range; do not render. |
+| `--dry-run` | false | Preflight recipe, dependencies and range; original-only mode decodes short lens-fit samples but writes no delivery files. |
 
 Auto backend selection does not silently change image dimensions, codec or seam
 mode. GPU kernels are independent Swift/Metal source shipped with the package.
@@ -75,6 +76,54 @@ a1-stitch stitch recording.insv --calibration calibration.json \
 Use real, covered frame ranges; these indices are examples. An 8K sphere spreads
 pixels around all 360 degrees; it is not an 8K rectilinear view. HEVC/ProRes do not
 turn the tested SDR capture into log/HDR, and neither reconstructs occluded detail.
+
+## Guided viewing and original-only setup
+
+```sh
+a1-stitch stitch recording.insv --first-frame 300 --frames 180 --output sphere.mp4
+a1-stitch view sphere.mp4 --port 8778
+a1-stitch stitch recording.insv --first-frame 300 --frames 180 \
+  --view fixed --output fixed.mp4
+```
+
+Automatic setup checks up to three original pairs, requires at least two
+consistent fits within 0.75°, and records schema-4 geometry and embedded camera
+pose provenance in the receipt. Unknown category/layout, missing coverage or
+interpolation gaps over 250 ms fail. Use a better interval or an explicit
+qualified calibration; never borrow another unit's profile.
+
+Pilot mode adds `OUTPUT.viewport.json` and `OUTPUT.view.html`, protected by
+no-overwrite publication and receipt checksums. Source-frame indices remain exact;
+path time starts at output zero. The WebGL player follows XYZW quaternions using
+Slerp. Free look overrides it; Follow pilot returns smoothly. Presentation starts
+at 90° horizontal FOV because recorded zoom/projection values are unqualified.
+HTML embeds the export-time path; editing JSON alone does not rebuild the player.
+
+`view VIDEO --port N` serves only the selected movie/viewer on 127.0.0.1, with
+byte-range seeking. Ports are 0–65535; zero requests an available port. It runs
+until interrupted. Browser video codec support varies; use H.264 for small review
+copies. The MP4 keeps its stable sphere and standard spherical tags. This is not
+embedded timed OMAF playback or a flat reframed export.
+
+## Still-photo TIFF commands
+
+| Command/option | Default | Behavior |
+| --- | --- | --- |
+| `photo SOURCE --output NEW.tiff` | — | Supported JPEG-based two-lens A1 INSP → RGB16 full-sphere TIFF. |
+| `--width N` | `0` | Native input raster width; otherwise 64–16384 in multiples of four, at most native width. |
+| `--backend auto\|cpu\|metal` | `auto` | Shared CPU/Metal projection and seam implementation. |
+| `--seam flow\|multiband\|feather` | `flow` | Photo blend mode; moving adaptive seam is not used for stills. |
+| `--calibration PATH` | absent | Optional matching profile for relative lens alignment; embedded photo pose supplies orientation. |
+| `--dry-run` | false | Validate input, dimensions and backend; no output or final fit/render. |
+| `--resume` | false | Verify/reuse only identical source, settings, implementation and TIFF/receipt. |
+| `verify-photo PHOTO --receipt RECEIPT` | receipt optional | Decompress all pixels; check RGB16, 2:1 shape, GPano XMP dimensions, pixel/output checksums. |
+
+Lossless Deflate preserves the rendered RGB16 pixels. TIFF tag 700 carries GPano
+`ProjectionType=equirectangular`, viewer hint, full/cropped dimensions and zero
+crop offsets. ICC is retained when present; no color profile is invented when
+absent. Source EXIF/GPS and vendor trailer remain in the original. Source precision
+is 8-bit; this is not DNG/RAW/HDR development or additional captured dynamic range.
+TIFF panorama interpretation depends on the destination software.
 
 ## Raw-gyro calibration
 
@@ -154,7 +203,8 @@ Keep recorded attitude as the default until matched moving imagery supports a ch
 `a1-stitch batch jobs.json --resume` processes sequentially and verifies completed
 outputs. Optional stitch fields include `occlusion_profile`, `gyro_profile`, `gyro_anchor_seconds`, `threads`, `timeout`,
 `no_stabilization`, `keep_work` and `resume`. CLI spelling changes hyphens to
-underscores in JSON. Each source/calibration/output/gyro-profile/occlusion-profile path is relative
+underscores in JSON. Calibration may be omitted for automatic setup; `view` defaults to `pilot`.
+Each source/calibration/output/gyro-profile/occlusion-profile path is relative
 to the manifest directory unless absolute. Do not add unknown metadata fields to
 jobs; put editorial associations in a separate handoff document.
 

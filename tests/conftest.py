@@ -197,7 +197,19 @@ def synthetic_camera(tmp_path_factory):
         exposure = b"".join(
             struct.pack("<Qd", 10_000_000 + round(i / fps * 1e6), 0.001) for i in range(-2, count)
         )
-        stream.write(trailer([(1, record), (4, exposure), (37, attitudes)]))
+        from a1_stitcher.viewpoint import AXIS
+
+        view = bytearray(struct.pack("<I", 4))
+        world = Rotation.from_matrix([[0, 1, 0], [0, 0, 1], [1, 0, 0]])
+        for t in times:
+            matrix = world * pose_at(t) * mount
+            camera = (AXIS.inv() * matrix * AXIS.inv()).inv().as_quat()[[3, 0, 1, 2]]
+            pilot = (AXIS * matrix.inv() * AXIS).as_quat()[[3, 0, 1, 2]]
+            view.extend(
+                struct.pack("<Q11f", 10_000_000 + round(t * 1e6), 0, 100, 100, *camera, *pilot)
+                + bytes(68)
+            )
+        stream.write(trailer([(1, record), (4, exposure), (32, view), (37, attitudes)]))
     calibration = dict(
         schema_version=1,
         camera_type=meta["camera_type"],

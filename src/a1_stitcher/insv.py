@@ -223,6 +223,17 @@ class InsvReader:
             from .exposure import exposure_summary
 
             result["exposure"] = exposure_summary(self)
+        if 32 in self.records and metadata.get("camera_type") == "Antigravity A1":
+            from .errors import StitchError
+            from .viewpoint import Viewpoint
+
+            try:
+                result["embedded_view"] = dict(
+                    supported=True,
+                    **Viewpoint(self, photo=self.records[32].size == 120).report(),
+                )
+            except StitchError as exc:
+                result["embedded_view"] = dict(supported=False, reason=str(exc))
         if 37 in self.records:
             payload = self.payload(37)
             if payload and len(payload) % 36 == 0:

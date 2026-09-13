@@ -168,7 +168,16 @@ def parser():
         "stitch", help="Convert an original source frame range into a verified standard sphere"
     )
     stitch.add_argument("source")
-    stitch.add_argument("--calibration", required=True)
+    stitch.add_argument(
+        "--calibration",
+        help="Optional reference profile; otherwise derive geometry from the original",
+    )
+    stitch.add_argument(
+        "--view",
+        choices=["pilot", "fixed"],
+        default="pilot",
+        help="Pilot path and guided viewer by default; fixed exports only the stabilized sphere",
+    )
     stitch.add_argument("--first-frame", required=True, type=int)
     stitch.add_argument("--frames", required=True, type=int)
     stitch.add_argument("--output", required=True)
@@ -238,6 +247,31 @@ def parser():
         help="Also export the entire source GPS track to OUTPUT.mp4.gpx; requires valid GPS",
     )
     stitch.add_argument("--dry-run", action="store_true")
+    photo = sub.add_parser(
+        "photo", help="Export an A1 INSP as a 16-bit equirectangular TIFF with panorama XMP"
+    )
+    photo.add_argument("source")
+    photo.add_argument("--output", required=True)
+    photo.add_argument(
+        "--calibration", help="Optional matching lens profile; default fits original overlap"
+    )
+    photo.add_argument(
+        "--width", type=int, default=0, help="Native combined width by default; no upscaling"
+    )
+    photo.add_argument("--backend", choices=["auto", "cpu", "metal"], default="auto")
+    photo.add_argument("--seam", choices=["flow", "multiband", "feather"], default="flow")
+    photo.add_argument("--resume", action="store_true")
+    photo.add_argument("--dry-run", action="store_true")
+    photo_check = sub.add_parser(
+        "verify-photo", help="Decode and check TIFF precision and panorama metadata"
+    )
+    photo_check.add_argument("photo")
+    photo_check.add_argument("--receipt")
+    viewer = sub.add_parser(
+        "view", help="Serve a pilot-guided export in a local interactive sphere player"
+    )
+    viewer.add_argument("video")
+    viewer.add_argument("--port", type=int, default=8778)
     check = sub.add_parser(
         "verify", help="Validate sphere metadata, timing, color, checksum and full decode"
     )
@@ -263,6 +297,21 @@ def main(argv=None):
     try:
         if args.command == "doctor":
             result = doctor()
+        elif args.command == "photo":
+            from .photo import export_photo
+
+            values = vars(args).copy()
+            values.pop("command")
+            result = export_photo(**values)
+        elif args.command == "verify-photo":
+            from .photo import verify_photo
+
+            result = verify_photo(args.photo, args.receipt)
+        elif args.command == "view":
+            from .player import serve
+
+            serve(args.video, args.port, progress)
+            return 0
         elif args.command == "sync-calibrate":
             from .visual_sync import calibrate
 
@@ -399,6 +448,7 @@ def main(argv=None):
                 if not isinstance(raw, dict):
                     raise StitchError("Each batch job must be an object")
                 row = raw.copy()
+                row.setdefault("calibration", None)
                 for name in [
                     "source",
                     "calibration",
@@ -406,7 +456,9 @@ def main(argv=None):
                     "gyro_profile",
                     "occlusion_profile",
                 ]:
-                    if name in ["gyro_profile", "occlusion_profile"] and not row.get(name):
+                    if name in ["calibration", "gyro_profile", "occlusion_profile"] and not row.get(
+                        name
+                    ):
                         continue
                     path = Path(row[name])
                     row[name] = str(path if path.is_absolute() else manifest_path.parent / path)
@@ -421,9 +473,14 @@ def main(argv=None):
                 Path(str(j.output) + ".receipt.json").resolve() for j in jobs
             }
             outputs |= {Path(str(j.output) + ".gpx").resolve() for j in jobs if j.export_gpx}
+            from .player import sidecar_paths
+
+            outputs |= {
+                p.resolve() for j in jobs if j.view == "pilot" for p in sidecar_paths(j.output)
+            }
             inputs = (
                 {Path(j.source).resolve() for j in jobs}
-                | {Path(j.calibration).resolve() for j in jobs}
+                | {Path(j.calibration).resolve() for j in jobs if j.calibration}
                 | {Path(j.gyro_profile).resolve() for j in jobs if j.gyro_profile}
                 | {Path(j.occlusion_profile).resolve() for j in jobs if j.occlusion_profile}
                 | {manifest_path}

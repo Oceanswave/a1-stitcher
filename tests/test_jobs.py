@@ -49,7 +49,7 @@ def test_complete_conversion_resume_metadata_and_stabilization(synthetic_camera,
     with pytest.raises(StitchError, match="changed"):
         stitch(replace(config, resume=True, frames=3))
     baseline = tmp_path / "baseline.mp4"
-    stitch(replace(config, output=str(baseline), no_stabilization=True))
+    stitch(replace(config, output=str(baseline), no_stabilization=True, view="fixed"))
 
     def decoded(path):
         data = run(

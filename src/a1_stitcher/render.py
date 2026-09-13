@@ -29,12 +29,13 @@ from .mp4 import make_faststart, tag_equirectangular
 from .process import binary, read_exact, run, stop, write_all
 from .projection import TiledStitcher, lenses_from_metadata, orientation37
 from .storage import fingerprint, identity, load_json, output_lock, publish_file, write_new_json
+from .viewpoint import Viewpoint, camera_path, heading_rotation
 
 
 @dataclass(frozen=True)
 class Options:
     source: str
-    calibration: str
+    calibration: str | None
     output: str
     first_frame: int
     frames: int
@@ -55,6 +56,7 @@ class Options:
     rolling_shutter_model: str = "velocity"
     heading_reference_frame: int = 0
     occlusion_profile: str | None = None
+    view: str = "pilot"
 
 
 def sensor_readout(metadata, fps, mode):
@@ -74,7 +76,7 @@ def sensor_readout(metadata, fps, mode):
     return milliseconds / 1000
 
 
-def plan(options):
+def plan(options, progress=None):
     if any(
         isinstance(getattr(options, k), bool) or not isinstance(getattr(options, k), int)
         for k in ["first_frame", "frames", "width", "lens_width", "threads"]
@@ -101,6 +103,12 @@ def plan(options):
         raise StitchError("Seam must be flow, adaptive or feather")
     if options.backend not in ["auto", "cpu", "metal"]:
         raise StitchError("Backend must be auto, cpu or metal")
+    if options.view not in ["pilot", "fixed"]:
+        raise StitchError("View must be pilot or fixed")
+    if options.view == "pilot" and options.no_stabilization:
+        raise StitchError(
+            "Pilot viewing requires stabilization; use --view fixed with --no-stabilization"
+        )
     if options.rolling_shutter_model not in ["trajectory", "velocity"]:
         raise StitchError("Rolling shutter model must be trajectory or velocity")
     if (
@@ -110,11 +118,15 @@ def plan(options):
     ):
         raise StitchError("Heading reference frame must be -1 or a nonnegative integer")
     source = Path(options.source).resolve(strict=True)
-    calibration_path = Path(options.calibration).resolve(strict=True)
+    calibration_path = (
+        Path(options.calibration).resolve(strict=True) if options.calibration else None
+    )
     output = Path(options.output).absolute()
     receipt = Path(str(output) + ".receipt.json")
     gpx_path = Path(str(output) + ".gpx")
-    protected = {source, calibration_path}
+    protected = {source}
+    if calibration_path:
+        protected.add(calibration_path)
     if options.gyro_profile:
         protected.add(Path(options.gyro_profile).resolve(strict=True))
     if options.occlusion_profile:
@@ -123,6 +135,10 @@ def plan(options):
         raise StitchError("Output or receipt would overwrite an input")
     if options.export_gpx and gpx_path.resolve() in protected:
         raise StitchError("GPX output would overwrite an input")
+    from .player import sidecar_paths
+
+    if options.view == "pilot" and any(p.resolve() in protected for p in sidecar_paths(output)):
+        raise StitchError("Viewport output would overwrite an input")
     encoding = encoding_profile(options.encoding)
     if output.suffix.lower() != encoding["suffix"]:
         raise StitchError(f"Encoding {options.encoding} requires a {encoding['suffix']} output")
@@ -135,17 +151,37 @@ def plan(options):
         occlusion = load_profile(options.occlusion_profile, metadata)
     gps = decode_gps(reader) if options.export_gpx else None
     gps_data = gpx_bytes(gps) if gps else None
-    calibration = load_calibration(calibration_path, metadata)
     profile = source_profile(source, metadata)
+    if options.first_frame + options.frames > profile["frames"]:
+        raise StitchError("Requested frame range exceeds source video")
+    if calibration_path:
+        calibration = load_calibration(calibration_path, metadata)
+    else:
+        from .automatic import calibration_from_original
+
+        calibration = calibration_from_original(
+            reader, profile, options.first_frame, progress=progress
+        )
+    embedded = calibration["schema_version"] == 4
+    view = Viewpoint(reader) if embedded or options.view == "pilot" else None
+    if embedded and options.gyro_profile:
+        raise StitchError(
+            "Raw gyro profiles need an explicit sensor calibration; automatic mode uses the embedded camera path"
+        )
     lens_width = options.lens_width or profile["width"]
     if lens_width > profile["width"]:
         raise StitchError("Lens decode width exceeds native source resolution")
     lenses_from_metadata(metadata, lens_width)
     if options.first_frame + options.frames > profile["frames"]:
         raise StitchError("Requested frame range exceeds source video")
-    times, recorded_poses = orientation37(reader)
+    times, recorded_poses = (view.times, view.camera) if embedded else orientation37(reader)
     fps = Fraction(profile["fps"])
     readout = sensor_readout(metadata, float(fps), options.rolling_shutter)
+    if embedded:
+        # Plane-view quaternions describe the camera's processed frame path.
+        # Applying raw-sensor row corrections to that path would double-correct
+        # or invent unsupported sub-frame motion. Keep this boundary explicit.
+        readout = 0.0
     visual_sync = calibration.get("visual_sync") if calibration["schema_version"] == 3 else None
     if visual_sync:
         mode = visual_sync["capture_mode"]
@@ -178,7 +214,7 @@ def plan(options):
         frames = np.asarray(frames, dtype=np.int64)
         return (
             exposure_clock.at_frames(frames) if exposure_clock else frames / float(fps)
-        ) + calibration["time_shift_seconds"]
+        ) + calibration.get("time_shift_seconds", 0.0)
 
     begin = float(frame_times([options.first_frame])[0])
     end = float(frame_times([options.first_frame + options.frames - 1])[0])
@@ -207,7 +243,9 @@ def plan(options):
         or not 0.02 <= options.gyro_anchor_seconds <= 1
     ):
         raise StitchError("Gyro anchor interval must be 0.02 to 1 second")
-    heading_pose = Slerp(times, recorded_poses)([heading_time])[0]
+    heading_pose = (
+        view.at([heading_time]) if embedded else Slerp(times, recorded_poses)([heading_time])
+    )[0]
     gyro = None
     if options.gyro_profile:
         from .gyro import trajectory
@@ -221,7 +259,21 @@ def plan(options):
                 "Image timing calibration was fitted with a different gyro profile or anchor interval"
             )
         heading_pose = motion(np.array([begin - readout / 2, end + readout / 2, heading_time]))[-1]
-    world_orientation(heading_pose)
+    world = heading_rotation(heading_pose) if embedded else world_orientation(heading_pose)
+    viewport = None
+    if view is not None:
+        indices = np.arange(options.frames) + options.first_frame
+        if embedded:
+            view.at(indices / float(fps))
+        if options.view == "pilot":
+            samples = frame_times(indices)
+            motion = Slerp(times, recorded_poses) if not options.gyro_profile else motion
+            matrices = (
+                world
+                * motion(samples)
+                * Rotation.from_matrix(calibration.get("lens_mount", np.eye(3)))
+            ).as_matrix()
+            viewport = camera_path(view, indices, fps, matrices)
     ffmpeg = binary("ffmpeg")
     check_encoder(ffmpeg, encoding)
     version = run([ffmpeg, "-version"]).decode().splitlines()[0]
@@ -278,6 +330,11 @@ def plan(options):
         encoding=encoding,
         gps=gps["summary"] if gps else None,
         gyro_profile=gyro,
+        viewport=dict(
+            mode=options.view,
+            path_fingerprint=fingerprint(viewport) if viewport else None,
+            embedded_record=view.report() if view else None,
+        ),
         backend=backend,
     )
     return dict(
@@ -289,12 +346,20 @@ def plan(options):
             "Experimental image quality; review fast motion, seams and horizon before editorial use",
             "Source identity uses file stat and edge hashes, not a full-file cryptographic hash",
             *(
+                [
+                    "Automatic mode uses embedded frame orientation; raw-gyro and per-row correction require an explicit sensor calibration"
+                ]
+                if embedded
+                else []
+            ),
+            *(
                 [backend["reason"]]
                 if options.backend == "auto" and backend["name"] == "cpu"
                 else []
             ),
         ],
         reader=reader,
+        viewport_data=viewport,
         metadata=metadata,
         calibration=calibration,
         gps=dict(
@@ -310,14 +375,20 @@ def plan(options):
 
 def stitch(options, progress=None, dry_run=False):
     started = time.monotonic()
-    job = plan(options)
+    job = plan(options, progress=progress)
     public_plan = {
-        k: v for k, v in job.items() if k not in ["reader", "metadata", "calibration", "gps_data"]
+        k: v
+        for k, v in job.items()
+        if k not in ["reader", "metadata", "calibration", "gps_data", "viewport_data"]
     }
     if dry_run:
         return dict(status="planned", **public_plan)
     output, receipt_path = Path(job["output"]), Path(job["receipt"])
     gpx_path = Path(job["gps"]["output"]) if job["gps"] else None
+    from .player import page, sidecar_paths
+    from .storage import digest, json_bytes
+
+    sidecars = sidecar_paths(output) if job["viewport_data"] else []
     output.parent.mkdir(parents=True, exist_ok=True)
     with output_lock(output):
         if (
@@ -326,6 +397,7 @@ def stitch(options, progress=None, dry_run=False):
             or receipt_path.exists()
             or receipt_path.is_symlink()
             or (gpx_path is not None and (gpx_path.exists() or gpx_path.is_symlink()))
+            or any(p.exists() or p.is_symlink() for p in sidecars)
         ):
             if not options.resume:
                 raise StitchError(
@@ -348,22 +420,32 @@ def stitch(options, progress=None, dry_run=False):
                 if saved.get("gps") != job["gps"]:
                     raise StitchError("GPX receipt differs from the requested export")
                 verify_gpx(gpx_path, job["gps"]["output_sha256"])
+            for p in sidecars:
+                if (
+                    p.is_symlink()
+                    or not p.is_file()
+                    or saved.get("viewport_files", {}).get(p.name) != digest(p)
+                ):
+                    raise StitchError("Cannot resume: viewport sidecar is missing or changed")
             return dict(
                 status="reused",
                 output=str(output),
                 receipt=str(receipt_path),
                 verification=verification,
                 gps=job["gps"],
+                viewport_files=[str(p) for p in sidecars],
             )
         work = Path(tempfile.mkdtemp(prefix=".a1-stitch-", dir=output.parent))
         processes = []
         published = False
         try:
             fps = Fraction(job["recipe"]["profile"]["fps"])
-            times, poses = orientation37(job["reader"])
+            embedded = job["calibration"]["schema_version"] == 4
+            view = Viewpoint(job["reader"]) if embedded else None
+            times, poses = (view.times, view.camera) if embedded else orientation37(job["reader"])
             samples = (np.arange(options.frames) + options.first_frame) / float(fps) + job[
                 "calibration"
-            ]["time_shift_seconds"]
+            ].get("time_shift_seconds", 0.0)
             interpolation = Slerp(times, poses)
             if options.gyro_profile:
                 from .gyro import trajectory
@@ -381,7 +463,7 @@ def stitch(options, progress=None, dry_run=False):
                     + job["calibration"]["time_shift_seconds"]
                 )
             pose = interpolation(samples)
-            mount = Rotation.from_matrix(job["calibration"]["lens_mount"])
+            mount = Rotation.from_matrix(job["calibration"].get("lens_mount", np.eye(3)))
             readout = job["recipe"]["rolling_shutter"]["readout_seconds"]
             velocities = [None] * options.frames
             if readout and options.rolling_shutter_model == "velocity":
@@ -389,7 +471,9 @@ def stitch(options, progress=None, dry_run=False):
                 last = interpolation(samples + readout / 2)
                 velocities = (mount.inv() * first.inv() * last * mount).as_rotvec() / readout
             reference = job["recipe"]["heading_reference"]["attitude_seconds"]
-            world = world_orientation(interpolation([reference])[0])
+            world = (heading_rotation if embedded else world_orientation)(
+                interpolation([reference])[0]
+            )
             matrices = (world * pose * mount).as_matrix()
             if options.no_stabilization:
                 matrices[:] = matrices[0]
@@ -570,19 +654,36 @@ def stitch(options, progress=None, dry_run=False):
                     else "No camera/propeller visibility masks applied",
                     "Experimental gyro interpolation anchored to recorded attitude; high-frequency image timing not yet qualified"
                     if options.gyro_profile
+                    else "Embedded processed camera orientation; raw-sensor row correction is not applied"
+                    if embedded
                     else "50 Hz recorded attitude; no high-rate IMU fusion",
                 ],
             )
+            staged_sides = []
+            if sidecars:
+                path = dict(
+                    job["viewport_data"], video_sha256=checked["output_sha256"], video=output.name
+                )
+                payloads = [json_bytes(path), page(output.name, path)]
+                for p, data in zip(sidecars, payloads):
+                    staged = work / p.name
+                    staged.write_bytes(data)
+                    staged_sides.append((staged, p))
+                receipt["viewport_files"] = {p.name: digest(staged) for staged, p in staged_sides}
             ready_gpx = work / "flight.gpx"
             if gpx_path is not None:
                 ready_gpx.write_bytes(job["gps_data"])
             publish_file(ready, output)
             published = True
             gpx_published = False
+            published_sides = []
             try:
                 if gpx_path is not None:
                     publish_file(ready_gpx, gpx_path)
                     gpx_published = True
+                for staged, p in staged_sides:
+                    publish_file(staged, p)
+                    published_sides.append((staged, p))
                 write_new_json(receipt_path, receipt)
             except BaseException:
                 # Remove only the same inode that this job just linked into place.
@@ -594,6 +695,9 @@ def stitch(options, progress=None, dry_run=False):
                     and gpx_path.stat().st_ino == ready_gpx.stat().st_ino
                 ):
                     gpx_path.unlink()
+                for staged, p in published_sides:
+                    if p.exists() and p.stat().st_ino == staged.stat().st_ino:
+                        p.unlink()
                 published = False
                 raise
             return dict(
@@ -602,6 +706,7 @@ def stitch(options, progress=None, dry_run=False):
                 receipt=str(receipt_path),
                 verification=checked,
                 gps=job["gps"],
+                viewport_files=[str(p) for p in sidecars],
                 elapsed_seconds=receipt["elapsed_seconds"],
                 warnings=job["warnings"],
             )

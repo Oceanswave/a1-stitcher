@@ -1,6 +1,7 @@
 """Media profile validation and decoded output verification."""
 
 from fractions import Fraction
+from pathlib import Path
 
 from .errors import StitchError
 from .process import binary, probe, run
@@ -102,6 +103,19 @@ def verify(path, *, expected=None, receipt=None, full=True, timeout=600):
         saved = load_json(receipt)
         if saved.get("output_sha256") != checksum:
             raise StitchError("Output checksum differs from receipt")
+        if "viewport_files" in saved:
+            from .player import sidecar_paths
+
+            sides = sidecar_paths(Path(path))
+            if set(saved["viewport_files"]) != {p.name for p in sides}:
+                raise StitchError("Viewport receipt has unexpected filenames")
+            for p in sides:
+                if (
+                    not p.is_file()
+                    or p.is_symlink()
+                    or digest(p) != saved["viewport_files"][p.name]
+                ):
+                    raise StitchError("Viewport sidecar is missing or differs from receipt")
     if full:
         run(
             [binary("ffmpeg"), "-v", "error", "-xerror", "-i", str(path), "-f", "null", "-"],

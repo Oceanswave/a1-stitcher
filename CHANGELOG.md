@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0.dev1 — unreleased
+
+- Default to pilot-follow companions: presentation-timed quaternion JSON and a
+  local guided player, with free look, seeking and smooth return. `--view fixed`
+  opts out; the full-sphere video stays stabilized in either mode.
+- Make manual calibration optional. Original-only setup reads embedded camera
+  orientation and fits lens overlap with majority/outlier checks; unsupported
+  layout/category, missing coverage and inconsistent fits fail explicitly.
+- Preserve explicit sensor calibration for advanced raw-gyro/exposure/row timing;
+  original-only mode does not claim those corrections or Studio equivalence.
+- Add JPEG-based INSP photo export to native-width, lossless RGB16 TIFF with
+  GPano equirectangular XMP, available ICC, complete pixel/tag verification and
+  receipts. DNG and higher-bit-depth capture are not inferred from 16-bit output.
+- Extend no-overwrite, atomic rollback, source identity and resume checks to
+  guided companions and photos. Document defaults, source/archive deltas,
+  known gaps, format observations and agent usage.
+
 ## 0.8.0
 
 - Add `benchmark` for contiguous, source-mapped Studio comparisons: six fixed
