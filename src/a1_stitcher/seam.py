@@ -114,7 +114,7 @@ def color_ratio(first, second, valid, sectors=32):
 class OverlapSeam:
     """One stateful seam estimator per contiguous conversion job."""
 
-    def __init__(self, lenses, relative, output_width, fps=30, adaptive=False):
+    def __init__(self, lenses, relative, output_width, fps=30, adaptive=False, multiband=False):
         self.lenses = lenses
         self.width = max(512, min(2048, output_width // 2))
         self.height = max(64, round(self.width * 16 / 360))
@@ -122,6 +122,8 @@ class OverlapSeam:
         self.pixel = np.array([2 * np.pi / self.width, 2 * self.extent / self.height], np.float32)
         self.relative = np.asarray(relative, np.float32)
         self.fps = fps
+        self.multiband = multiband
+        self.correction = None
         self.path = None
         if adaptive:
             from .adaptive import AdaptivePath
@@ -162,6 +164,7 @@ class OverlapSeam:
         row_quaternions=None,
         visibility=None,
     ):
+        native = frames
         # Flow/CLAHE analyze 8-bit proxies; final remapping retains the original
         # 16-bit signal when a finishing encode is requested.
         if frames[0].dtype == np.uint16:
@@ -199,11 +202,59 @@ class OverlapSeam:
                 self.log_ratio = ratio
             else:
                 amount = 1 - np.exp(-1 / (self.fps * 0.25))
-                self.log_ratio += amount * (ratio - self.log_ratio)
+                delta = amount * (ratio - self.log_ratio)
+                self.log_ratio += np.clip(delta, -0.01, 0.01) if self.multiband else delta
         elif self.log_ratio is not None:
             # Do not hold a previous scene's balance through unsupported footage.
             self.log_ratio *= np.exp(-1 / (self.fps * 0.25))
         self.frames += 1
+        if self.multiband:
+            # Three frequency bands: native high-frequency detail keeps the narrow
+            # seam. Two lower-frequency differences use wider angular transitions.
+            # Never average pixels across time, which would trail moving objects.
+            signals = [
+                cv2.remap(f, u, v, cv2.INTER_CUBIC).astype(np.float32) / np.iinfo(f.dtype).max
+                for f, (u, v, _) in zip(native, maps)
+            ]
+            signals[1] = periodic_sample(signals[1], x + flow[..., 0], y + flow[..., 1])
+            balance = self.log_ratio if self.log_ratio is not None else ratio
+            latitude = (y + 0.5) * self.pixel[1] - self.extent
+            taper = 1 - smoothstep(np.abs(latitude) / self.extent)
+            corrected = [
+                s * np.exp(np.minimum(sign * balance, 0) * taper[..., None])
+                for s, sign in zip(signals, [1, -1])
+            ]
+            support = valid & (self.confidence[0] > 0.2)
+            support &= (
+                (signals[0] > 0.02)
+                & (signals[0] < 0.98)
+                & (signals[1] > 0.02)
+                & (signals[1] < 0.98)
+            ).all(2)
+            support &= np.max(np.abs(corrected[0] - corrected[1]), axis=2) < 0.2
+            difference = corrected[0] - corrected[1]
+            alphas = [smoothstep((latitude / np.radians(d) + 1) / 2) for d in [1.2, 2.4, 4.8]]
+            correction = np.zeros_like(difference)
+            for k, sigma in enumerate([1.2, 3.5]):
+                # Pad only longitude periodically; latitude uses edge replication.
+                pad = int(np.ceil(sigma * 4))
+
+                def blur(value):
+                    padded = np.pad(
+                        value, ((0, 0), (pad, pad)) + ((0, 0),) * (value.ndim - 2), mode="wrap"
+                    )
+                    return cv2.GaussianBlur(padded, (0, 0), sigma, borderType=cv2.BORDER_REPLICATE)[
+                        :, pad:-pad
+                    ]
+
+                weight = blur(support.astype(np.float32))
+                low = blur(difference * support[..., None]) / np.maximum(weight[..., None], 1e-5)
+                correction += (
+                    (alphas[k + 1] - alphas[k])[..., None] * low * (weight > 0.9)[..., None]
+                )
+            self.correction = (np.clip(correction, -0.1, 0.1) * support[..., None]).astype(
+                np.float32
+            )
         if self.path is not None:
             balance = self.log_ratio if self.log_ratio is not None else ratio
             gain0, gain1 = np.exp(np.minimum(balance, 0)), np.exp(np.minimum(-balance, 0))
@@ -259,6 +310,15 @@ class OverlapSeam:
             gains = [np.exp(np.minimum(sign * balance, 0) * taper[:, :, None]) for sign in [1, -1]]
         return directions, alpha, gains
 
+    def multiband_correction(self, rays):
+        if self.correction is None:
+            return np.zeros_like(rays)
+        azimuth = np.arctan2(rays[..., 1], rays[..., 0])
+        latitude = np.arcsin(np.clip(rays[..., 2], -1, 1))
+        x = (azimuth + np.pi) / self.pixel[0] - 0.5
+        y = (latitude + self.extent) / self.pixel[1] - 0.5
+        return periodic_sample(self.correction, x, y) * (np.abs(latitude) < self.extent)[..., None]
+
     def report(self):
         return {
             key: (
@@ -273,6 +333,7 @@ class OverlapSeam:
             "frames": self.frames,
             "measured_frames": self.measured_frames,
             "flow_analysis_width": self.width,
+            "multiband": self.multiband,
             "adaptive_path": self.path.report() if self.path is not None else None,
             "diagnostic_scope": "trusted central overlap pixels; not a whole-image quality score",
         }

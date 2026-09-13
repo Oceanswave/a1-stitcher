@@ -54,6 +54,7 @@ def test_mask_fallback_and_uncovered_pixel_failure_on_gpu():
         assert missing == 0
     finally:
         gpu.close()
+
     data["lenses"][1]["max_angle_degrees"] = 85
     gpu = MetalStitcher(lenses, relative, 256, seam="flow", occlusion=data)
     try:
@@ -63,10 +64,41 @@ def test_mask_fallback_and_uncovered_pixel_failure_on_gpu():
         gpu.close()
 
 
+@pytest.mark.skipif(os.environ.get("A1_TEST_METAL") != "1", reason="Requires Metal GPU")
+def test_reviewed_quality_mask_rejects_clipped_alternate_on_both_backends():
+    from a1_stitcher.metal import MetalStitcher
+    from a1_stitcher.occlusion import template
+
+    meta = metadata(128)
+    for index in [2, 3, 21, 22]:
+        meta["offset_v3"][index] *= 0.8
+    lenses = lenses_from_metadata(meta, 128)
+    relative = Rotation.from_euler("y", 180, degrees=True).as_matrix()
+    profile = template(meta)
+    profile.update(
+        schema_version=2,
+        alternate_quality="clipping-contrast-v1",
+        proposal=dict(status="reviewed", review_notes="Synthetic fixture visibility verified."),
+    )
+    profile["lenses"][0]["max_angle_degrees"] = 85
+    profile["lenses"][1]["max_angle_degrees"] = 105
+    frames = [np.full((128, 128, 3), 120, np.uint8), np.full((128, 128, 3), 255, np.uint8)]
+    for renderer in [
+        TiledStitcher(lenses, relative, 256, seam="multiband", occlusion=profile),
+        MetalStitcher(lenses, relative, 256, seam="multiband", occlusion=profile),
+    ]:
+        try:
+            with pytest.raises(StitchError, match="both lenses"):
+                renderer.stitch(frames, np.eye(3))
+        finally:
+            if isinstance(renderer, MetalStitcher):
+                renderer.close()
+
+
 @pytest.mark.skipif(
     os.environ.get("A1_TEST_METAL") != "1", reason="Set A1_TEST_METAL=1 on a Metal host"
 )
-@pytest.mark.parametrize("seam", ["feather", "flow", "adaptive"])
+@pytest.mark.parametrize("seam", ["feather", "flow", "adaptive", "multiband"])
 @pytest.mark.parametrize("dtype", [np.uint8, np.uint16])
 @pytest.mark.parametrize("readout", [0, 0.021])
 @pytest.mark.parametrize("model", ["velocity", "trajectory"])

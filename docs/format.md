@@ -151,7 +151,7 @@ corrections. These operations do not solve camera translation, severe near-subje
 parallax/occlusion. Optional native visibility profiles exclude housing/guard
 pixels after row projection and select the other lens when available; they
 reject holes instead of reconstructing doubly occluded detail. See the
-[current quality evidence](quality-v0.7.md) for measured behavior and limits.
+[current quality evidence](quality-v0.8.md) for measured behavior and limits.
 
 ## Output metadata
 
@@ -208,3 +208,26 @@ inside the wheel; no vendor binary or model is required.
 See the README's [source-versus-output importance table](../README.md#what-conversion-preserves-and-bakes-in)
 for what remains editable, is baked into pixels, is exported separately or is
 unsupported. The video does not retain the raw trailer or sensor streams.
+
+## Image timing and reviewed visibility in 0.8
+
+Calibration schema 3 preserves an explicit `nominal` or `exposure-midpoint-v1`
+clock and adds `visual_sync.kind: a1-image-row-sync-v1`, a readout multiplier,
+the base calibration fingerprint, the fitted gyro-profile fingerprint and anchor
+spacing. Its time shift includes the measured image adjustment. Render preflight
+requires the corresponding gyro profile and trajectory row model; older versions
+reject the schema rather than silently discarding its readout correction.
+The source video cadence is never changed. This is an independent robust
+image/trajectory fit, not a decoder for another proprietary timing record.
+
+Native visibility schema 2 adds a review state and `clipping-contrast-v1` alternate
+quality policy. Proposals contain original sampled frame indices and input identity.
+Unreviewed/empty profiles cannot render. Only forced replacements use dynamic
+quality checks; ordinary primary-lens coverage does not require visible texture.
+Current clipping rejects immediately; contrast confidence is damped over frames.
+The profile and policy are included in receipts and processing identity.
+
+The optional `multiband` seam uses three frequency bands in the existing overlap:
+native high-frequency detail plus two confidence-gated low-frequency differences.
+This is a bounded belt implementation, not a full-resolution panorama pyramid or
+a reproduction of Studio image fusion. All changes are baked into rendered pixels.

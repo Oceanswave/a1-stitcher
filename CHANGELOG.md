@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.0
+
+- Add `benchmark` for contiguous, source-mapped Studio comparisons: six fixed
+  views, one initial alignment, per-frame tracking coverage and separate motion,
+  brightness and local-residual measurements.
+- Add `sync-calibrate` to jointly fit image/gyro time offset and native-row readout.
+  Temporal holdouts and observability checks reject unhelpful fits; schema-3
+  profiles preserve their clock and enforce gyro/row-model dependencies.
+- Add `mask-propose` and `mask-approve`, native overlay evidence and explicit review
+  state. Schema-2 visibility checks alternate clipping/contrast during forced
+  replacements. Empty templates and unreviewed proposals can be previewed safely.
+- Add opt-in `--seam multiband`: preserve native detail while blending two broader
+  frequency bands, with confidence gates and bounded per-frame gain updates on
+  CPU/Metal. Established finishing defaults remain unchanged.
+- Add synthetic timing, motion, mask, decode, no-overwrite and GPU parity tests;
+  update the source/archive importance table, format docs and discoverable skill.
+
 ## 0.7.0
 
 - Add exposure-midpoint synchronization through explicitly refitted schema-2

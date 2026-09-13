@@ -8,7 +8,8 @@ and the timestamped attitude record. It renders a complete 360° sphere, adds
 standard spatial metadata, and verifies the finished video. Once a camera has
 been calibrated, conversion does not require Antigravity Studio.
 
-**Status: alpha, with opt-in exposure synchronization and aircraft visibility masks in 0.7.0.**
+**Status: alpha. Version 0.8 adds image-based timing calibration, obstruction-mask proposals,
+multiscale seam blending and continuous Studio comparisons.**
 Defaults now produce an 8192×4096 sphere from native lens frames, with 16-bit
 image processing and 10-bit HEVC encoding. ProRes 422 HQ is available for finishing.
 An independent Metal renderer accelerates supported Macs; the CPU reference
@@ -23,8 +24,10 @@ separate-recording transfer validation. Recorded attitude remains the default:
 a higher sensor sample rate alone does not qualify high-frequency image correction.
 Exposure-aware calibration and camera-bound visibility masks are now available.
 Masks replace excluded housing/propeller pixels only where the other lens sees
-the scene; automatic blade detection and reconstruction remain open.
-See [the 0.7 evidence and limits](docs/quality-v0.7.md). Severe occlusion and
+the scene. Multi-frame detection now proposes fixed obstructions for review; it
+does not identify every blade. Reviewed proposals also check the alternate image
+for clipping and low contrast before forced replacement.
+See [the 0.8 evidence and limits](docs/quality-v0.8.md). Severe occlusion and
 broader camera coverage remain open.
 This is an independent implementation, not an official Antigravity or Insta360
 product or a reproduction of proprietary FlowState/AI stitching.
@@ -46,14 +49,14 @@ not measured image-quality scores.
 
 | Area | What the CLI generates or preserves | Difference from the source archive | Importance and practical effect |
 | --- | --- | --- | --- |
-| Re-stitching and lens geometry | One full equirectangular sphere, rendered from both calibrated lens tracks. | Dewarp, lens registration, seam decisions, flow and local color matching are baked into pixels. Separate fisheye images and overlap cannot be recovered from the composite. | **High** — keep INSV to improve stitching, change calibration, handle parallax differently or use a future vendor algorithm. |
+| Re-stitching and lens geometry | One full equirectangular sphere, rendered from both calibrated lens tracks. | Dewarp, lens registration, seam decisions, flow, local color matching and optional three-band blending are baked into pixels. Separate fisheye images and overlap cannot be recovered from the composite. | **High** — keep INSV to improve stitching, change calibration, handle parallax differently or use a future vendor algorithm. |
 | Stabilization and rolling shutter | Recorded-attitude stabilization with native-row correction; optional varying row trajectories and calibrated raw-gyro interpolation. A fixed source-frame heading is shared across exports. Further global rotation and image-based correction remain possible. | Applied corrections are baked in. Raw IMU, original attitude samples and sensor-row measurements are not embedded in the generated video. The gyro profile in the receipt describes processing; it is not the raw sensor stream. | **High** — re-running sensor-based stabilization or changing row timing requires the original. The exported sphere can still be reframed freely. |
 | View, framing and depth | Complete 360° × 180° monoscopic coverage, with later yaw/pitch/roll, field of view, tracking and animated reframes. | No stereo depth or change of the physical viewpoint is created. This is a capture limit, not something equirectangular export discards. | **Low** for ordinary reframing — the full sphere is retained. An overhead drone cannot become a ground-level camera through reframing. |
 | Spatial detail and compression | Default 8192×4096 output from native-size lenses; optional ProRes 422 HQ or smaller review encodes. | Projection interpolation, seam blending and another lossy encode change pixels. Native-resolution processing avoids the former 1440-pixel lens downsample; an 8K sphere does not imply 8K detail in a narrow reframe. | **Medium** at the new defaults; **High if a small preview is used for finishing**. Render a fresh master from INSV when changing quality settings. |
 | Color precision and chroma | Default 16-bit image processing → 10-bit 4:2:0 HEVC, CRF 12. ProRes 422 HQ offers 10-bit 4:2:2; H.264 review mode uses 8-bit 4:2:0. | The tested original is 8-bit 4:2:0 SDR. Extra processing precision reduces new rounding but does not create captured dynamic range or missing color detail. HEVC and ProRes are still lossy generations. | **Medium** for grading — use HEVC10 or ProRes and avoid repeated intermediate re-encodes. This fixes the old always-8-bit output limitation, not the source's capture limits. |
 | Color space, range and log/HDR | Tagged limited-range SDR BT.709 suitable for SDR Resolve/Fusion grading. No LUT is applied. | Tested sources are full-range SDR BT.709. The range conversion changes signal encoding, not intended display contrast when interpreted correctly. Log/HDR/higher-bit-depth inputs remain rejected. | **Low** for correctly interpreted supported SDR; **High if log/HDR ingest is required** — it is unsupported, not silently flattened. |
-| Exposure telemetry and synchronization | `inspect` reports shutter/timestamp statistics. Optional schema-2 calibration fits an exposure-midpoint attitude clock; the receipt records it. | Raw exposure samples are not copied into MP4. The chosen timing is baked into stabilization, while output frame cadence stays unchanged. Two short moving tests were promising but reference holdouts were mixed. | **High** for future sensor reprocessing; **Low** for routine cutting. Keep INSV and refit with `calibrate --frame-clock exposure`; never append a guessed offset to an old profile. |
-| Camera/propeller visibility | Optional camera/accessory-bound native masks select visible pixels from the other real lens; the profile is stored in the receipt. | Lens selection is baked into the composite. This is authored exclusion, not automatic blade detection or reconstruction of doubly occluded detail. Broad masks can worsen flare or seams; uncovered pixels cause a failed job. | **High when the aircraft intrudes**; **Low when the default seam already avoids it**. Keep originals to revise the profile and inspect moving boundaries. |
+| Exposure telemetry and synchronization | `inspect` reports shutter/timestamp statistics. Optional schema-2 calibration fits an exposure-midpoint attitude clock. Schema 3 can refine image/gyro offset and row readout jointly; dependencies and timing are recorded. | Raw exposure samples are not copied into MP4. The chosen timing is baked into stabilization, while output cadence stays unchanged. Image fits must pass temporal holdouts; they can reject an unhelpful result and do not establish transfer automatically. | **High** for future sensor reprocessing; **Low** for routine cutting. Keep INSV and refit with `calibrate --frame-clock exposure`; never append a guessed offset to an old profile. |
+| Camera/propeller visibility | Optional camera/accessory-bound native masks select visible pixels from the other real lens; the profile is stored in the receipt. | Lens selection is baked into the composite. Authored masks or reviewed multi-frame proposals guide exclusion; this is not complete blade segmentation or reconstruction of doubly occluded detail. Schema-2 masks check alternate-lens clipping/contrast during forced replacement. Broad masks can worsen flare or seams; unavailable replacements fail. | **High when the aircraft intrudes**; **Low when the default seam already avoids it**. Keep originals to revise the profile and inspect moving boundaries. |
 | Frame timing and selected duration | Selected consecutive frames at the original constant frame rate, with exact first-source-frame/count in the receipt. | Unselected frames are absent from this working copy. No retiming or frame interpolation is added by stitching. | **Medium** — include handles; the archive is needed for longer trims or a different event. |
 | Audio | Typical tested A1 inputs have no audio track. | Inputs containing audio are refused; this release has no audio-preserving conversion path. | **High if the input contains sound** — conversion is blocked rather than silently dropping it. Keep any separate sound recordings for the editor. |
 | GPS flight profile | Optional GPX sidecar with recorded position, UTC, reported elevation and speed/course extensions; checksum in the video receipt. Standalone extraction is also available. | GPS is not embedded as the original telemetry track. GPX covers the entire source recording, even for a short video selection. Exact UTC/video alignment and altitude datum remain unqualified; missing/invalid GPS causes the requested export to fail. | **Medium** for editorial maps; **High for precise flight/sensor analysis**. Keep originals and the sidecar; do not treat reported elevation as verified AGL or infer a complete multi-file flight. |
@@ -112,7 +115,7 @@ python3 -m venv .venv
 .venv/bin/a1-stitch doctor
 
 # Or install the tagged GitHub source as an isolated CLI with uv
-uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.7.0'
+uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.8.0'
 a1-stitch doctor
 ```
 
@@ -345,6 +348,59 @@ recorded-attitude jitter, at the cost of allowing more drift between anchors. Th
 experimental: low-pass agreement and synthetic vibration tests do not establish
 high-frequency sensor-to-image timing. Compare real moving footage before use.
 
+### Image timing, obstruction proposals and multiscale seams
+
+```sh
+# Fit sensor/image timing and native-row readout together on a varied interval.
+a1-stitch sync-calibrate recording.insv --calibration exposure-calibration.json \
+  --gyro-profile gyro-profile.json --first-frame 1200 --frames 600 \
+  --output image-calibration.json --evidence-dir timing-evidence
+
+# Only if the fit qualifies: preserve its gyro profile, anchor spacing and row model.
+a1-stitch stitch recording.insv --calibration image-calibration.json \
+  --gyro-profile gyro-profile.json --rolling-shutter-model trajectory \
+  --first-frame 1200 --frames 600 --output timing-test.mp4
+
+# Propose native obstructions from multiple frames; inspect generated overlays.
+a1-stitch mask-propose recording.insv --calibration camera-calibration.json \
+  --first-frame 1200 --frames 600 --samples 24 \
+  --output proposed-mask.json --evidence-dir mask-evidence
+
+# After inspecting/refining actual native exclusions, record that review.
+a1-stitch mask-approve proposed-mask.json --output reviewed-mask.json \
+  --review-notes "Describe the frames reviewed, retained exclusions and remaining limits."
+
+a1-stitch stitch recording.insv --calibration camera-calibration.json \
+  --first-frame 1200 --frames 600 --occlusion-profile reviewed-mask.json \
+  --seam multiband --output seam-test.mp4
+```
+
+`sync-calibrate` fits a ±40 ms timing adjustment and 0.5–1.5× readout scale.
+It uses native-image feature tracks, four contiguous temporal blocks, robust
+fitting and observability/boundary checks. A rejected fit writes evidence and
+returns JSON `status: rejected`, with **no calibration output**. Exit zero means
+the analysis completed; automation must inspect status. A qualifying schema-3
+profile requires the same gyro-profile fingerprint and anchor spacing, plus
+`--rolling-shutter-model trajectory`. It preserves the base nominal or exposure
+clock. Do not manually relabel a schema-1/2 calibration or discard these dependencies.
+Validate a separate recording before treating a local fit as transferable.
+
+`mask-propose` finds persistent dark, textured mismatches in the native overlap.
+It excludes the black image rim and abstains on insufficient scene movement.
+Proposals can be incomplete or wrong, and cannot be used by `stitch` until
+reviewed. Empty proposals cannot be approved. Schema-2 visibility profiles add
+clipping/contrast checks only when a mask forces replacement by the other lens;
+if neither view is usable the job fails. This check is not a general flare,
+blur or object-identity classifier. Legacy authored schema-1 masks remain supported.
+
+`--seam multiband` retains native detail at a narrow transition, blends two
+lower-frequency difference bands over wider transitions, and limits per-frame
+color-gain changes. It uses bounded overlap analysis on CPU and the same final
+CPU/Metal projection paths. It does not average image pixels across time or
+invent occluded detail. All three new processing options remain explicit:
+newer algorithms do not automatically beat the established defaults on every shot.
+See the [option reference](skills/stitch-a1-video/references/options.md) for limits.
+
 ### Receipts and repeated jobs
 
 A matching `.mp4.receipt.json` (or `.mov.receipt.json`) records source range, camera profile, processing
@@ -390,6 +446,22 @@ angular errors. No local warp or color fit is applied. Per-frame alignment can
 hide stabilization differences; inspect the original view, rotation changes and
 full motion as well. Low inlier error does not score unmatched/occluded pixels,
 prove freshness or certify a whole shot. Existing output directories are refused.
+
+For a continuous motion comparison, use the original frame mapping and a longer
+interval (600 frames is about 20 seconds at the tested frame rate):
+
+```sh
+a1-stitch benchmark selected-sphere.mp4 --reference studio-sphere.mp4 \
+  --reference-first-frame 570 --frames 600 --output-dir moving-comparison
+```
+
+This generates a side-by-side video containing six fixed 90° views per input,
+with **one alignment on frame zero**. Every decoded frame is included; motion
+measurements mark failed tracking rather than bridging missing observations.
+The JSON separates angular acceleration, local residuals, brightness changes and
+coverage. These are reduced-resolution diagnostics, influenced by scene movement
+and parallax. There is no single quality score, absolute horizon measurement or
+automatic human-review claim. Inspect native seams and the complete motion separately.
 
 ### Batch and agent use
 

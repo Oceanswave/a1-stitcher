@@ -30,14 +30,26 @@ def template(metadata):
     )
 
 
-def validate(profile, metadata=None):
+def validate(profile, metadata=None, *, allow_unreviewed=False, allow_empty=False):
     try:
         if (
             type(profile.get("schema_version")) is not int
-            or profile.get("schema_version") != 1
+            or profile.get("schema_version") not in (1, 2)
             or profile.get("kind") != "a1-native-visibility-v1"
         ):
             raise ValueError("unsupported schema")
+        if profile["schema_version"] == 2:
+            proposal = profile["proposal"]
+            if profile.get("alternate_quality") != "clipping-contrast-v1" or proposal.get(
+                "status"
+            ) not in ["needs_review", "reviewed"]:
+                raise ValueError("invalid proposal state or alternate quality model")
+            if proposal["status"] != "reviewed" and not allow_unreviewed:
+                raise ValueError("mask proposal needs native-overlay review; use mask-approve")
+            if proposal["status"] == "reviewed" and not isinstance(
+                proposal.get("review_notes"), str
+            ):
+                raise ValueError("review notes are required")
         fingerprint = profile["lens_fingerprint"]
         if len(fingerprint) != 64 or any(c not in "0123456789abcdef" for c in fingerprint):
             raise ValueError("invalid lens fingerprint")
@@ -85,7 +97,7 @@ def validate(profile, metadata=None):
                 if abs(cv2.contourArea(vertices.astype(np.float32))) < 1e-6:
                     raise ValueError("exclusion polygon has no area")
                 configured = True
-        if not configured:
+        if not configured and not allow_empty:
             raise ValueError("empty template; supply lens angle limits or exclusion polygons")
         if metadata is not None:
             if (
@@ -107,10 +119,12 @@ def load_profile(path, metadata):
 
 
 class VisibilityMasks:
-    def __init__(self, profile, lenses):
+    def __init__(self, profile, lenses, *, preview=False):
         from .projection import unproject
 
-        validate(profile)
+        validate(profile, allow_unreviewed=preview, allow_empty=preview)
+        self.quality_enabled = profile.get("alternate_quality") == "clipping-contrast-v1"
+        self.quality = None
         self.maps = []
         for description, lens in zip(profile["lenses"], lenses):
             keep = np.ones((MASK_SIZE, MASK_SIZE), np.uint8)
@@ -131,6 +145,40 @@ class VisibilityMasks:
             self.maps.append((amount * amount * (3 - 2 * amount)).astype(np.float32))
         self.lenses = lenses
 
+    def prepare(self, frames):
+        if not self.quality_enabled:
+            return
+        maps = []
+        for i, frame in enumerate(frames):
+            image = cv2.resize(
+                frame.astype(np.float32) / np.iinfo(frame.dtype).max,
+                (MASK_SIZE, MASK_SIZE),
+                interpolation=cv2.INTER_AREA,
+            )
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            contrast = np.sqrt(
+                np.maximum(0, cv2.blur(gray * gray, (9, 9)) - cv2.blur(gray, (9, 9)) ** 2)
+            )
+            value = np.clip((contrast - 0.003) / 0.012, 0, 1)
+            if self.quality is not None:
+                value = 0.7 * self.quality[i] + 0.3 * value
+            # Current clipping always wins over temporal history.
+            value *= (gray > 0.01) & (gray < 0.98)
+            maps.append(value.astype(np.float32))
+        self.quality = maps
+
+    def sample_quality(self, index, u, v):
+        if self.quality is None:
+            return np.ones_like(u)
+        scale = (MASK_SIZE - 1) / (self.lenses[index]["width"] - 1)
+        return cv2.remap(
+            self.quality[index],
+            (u * scale).astype(np.float32),
+            (v * scale).astype(np.float32),
+            cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        )
+
     def sample(self, index, u, v):
         scale = (MASK_SIZE - 1) / (self.lenses[index]["width"] - 1)
         shape = u.shape
@@ -144,10 +192,12 @@ class VisibilityMasks:
         ).reshape(shape)
 
 
-def visible_weights(preferred, eligibility):
+def visible_weights(preferred, eligibility, quality=None):
     weights = preferred * eligibility
     fallback = weights.sum(axis=0) <= 1e-5
-    weights[:, fallback] = eligibility[:, fallback]
+    weights[:, fallback] = eligibility[:, fallback] * (
+        quality[:, fallback] if quality is not None else 1
+    )
     return weights
 
 
@@ -163,12 +213,12 @@ def preview(source, profile_path, frame, output_dir):
 
     source = Path(source).resolve(strict=True)
     metadata = InsvReader(source).metadata()
-    profile = load_profile(profile_path, metadata)
+    profile = validate(load_json(profile_path), metadata, allow_unreviewed=True, allow_empty=True)
     video = source_profile(source, metadata)
     if isinstance(frame, bool) or not isinstance(frame, int) or not 0 <= frame < video["frames"]:
         raise StitchError("Preview frame is outside the source video")
     width = min(1024, video["width"])
-    masks = VisibilityMasks(profile, lenses_from_metadata(metadata, width))
+    masks = VisibilityMasks(profile, lenses_from_metadata(metadata, width), preview=True)
     before = identity(source)
     output = Path(output_dir).absolute()
     output.mkdir(parents=True, exist_ok=False)
