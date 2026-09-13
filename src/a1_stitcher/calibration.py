@@ -40,9 +40,9 @@ def validate_calibration(data, metadata=None):
     if (
         not isinstance(data, dict)
         or type(data.get("schema_version")) is not int
-        or data.get("schema_version") not in (1, 2, 3)
+        or data.get("schema_version") not in (1, 2, 3, 4)
     ):
-        raise StitchError("Unsupported calibration schema; expected schema_version 1, 2 or 3")
+        raise StitchError("Unsupported calibration schema; expected schema_version 1, 2, 3 or 4")
     if (data["schema_version"] == 2 and data.get("frame_clock") != "exposure-midpoint-v1") or (
         data["schema_version"] == 1 and data.get("frame_clock", "nominal") != "nominal"
     ):
@@ -55,8 +55,27 @@ def validate_calibration(data, metadata=None):
         fingerprint = data["lens_fingerprint"]
         if len(fingerprint) != 64 or any(c not in "0123456789abcdef" for c in fingerprint):
             raise ValueError("invalid lens fingerprint")
-        rotation_matrix(data["lens_mount"], "lens_mount")
         rotation_matrix(data["rotation_lens1_to_lens0"], "rotation_lens1_to_lens0")
+        if metadata is not None and lens_fingerprint(metadata) != fingerprint:
+            raise ValueError("calibration belongs to different embedded lens parameters")
+        if data["schema_version"] == 4:
+            if data.get("orientation_source") != "a1-plane-view-camera-v1":
+                raise ValueError("unknown embedded orientation convention")
+            if any(
+                k in data
+                for k in [
+                    "lens_mount",
+                    "time_shift_seconds",
+                    "frame_clock",
+                    "visual_sync",
+                    "inverse",
+                ]
+            ):
+                raise ValueError(
+                    "embedded orientation cannot include a sensor transform or timing override"
+                )
+            return data
+        rotation_matrix(data["lens_mount"], "lens_mount")
         offset = data["time_shift_seconds"]
         if (
             isinstance(offset, bool)

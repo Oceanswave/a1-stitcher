@@ -287,8 +287,8 @@ class TiledStitcher:
         readout_seconds=0,
         occlusion=None,
     ):
-        if width < 64 or width > 8192 or width % 4 or strip_height < 1:
-            raise StitchError("Sphere width must be a multiple of 4 between 64 and 8192")
+        if width < 64 or width > 16384 or width % 4 or strip_height < 1:
+            raise StitchError("Sphere width must be a multiple of 4 between 64 and 16384")
         self.lenses = lenses
         self.relative = np.asarray(relative, np.float32)
         self.width = width

@@ -38,23 +38,114 @@ indexed records still require consistent trailing headers.
 - **4:** observed exposure samples, `<Qd`, 16 bytes each: timestamp in microseconds
   and exposure duration in seconds. `inspect` reports statistics without changing
   the calibrated frame clock. See the exposure notes below.
+- **32:** embedded frame camera and pilot view; length-prefixed video header and
+  120-byte items, or one bare photo item. See the record-32 section below.
 - **37:** observed attitude samples, `<Q7f`, 36 bytes each. Timestamp in microseconds,
   an XYZW unit quaternion, and three uninterpreted floats. The approximately
   50 Hz attitude interpretation is supported by sampled image comparisons.
 
 Time is relative to the first video timestamp in metadata. Gyro timing,
 rolling-shutter readout and a reference-fitted attitude offset are different
-quantities; do not add them indiscriminately. The current renderer uses its
-profile's measured attitude offset. With `--rolling-shutter auto`, it also uses
+quantities; do not add them indiscriminately. With an explicit schema 1–3 sensor
+profile, the renderer uses its measured attitude offset. With `--rolling-shutter auto`, it also uses
 embedded sensor readout duration and a locally constant angular velocity by default.
 The optional `--rolling-shutter-model trajectory` instead uses 33 uniformly spaced
 quaternion samples from the selected orientation trajectory. Each lens uses its own native row; the
 inverse center-to-capture rotation is evaluated with two row-map updates.
 Quaternion signs are made continuous before normalized linear interpolation.
-The default uses recorded attitude; `--gyro-profile` supplies experimental
+The explicit sensor path uses recorded attitude; `--gyro-profile` supplies experimental
 anchored raw-gyro interpolation. `--rolling-shutter-model velocity` retains the
 older constant-rate approximation. Missing readout metadata disables row correction; invalid values
 fail preflight.
+
+## Embedded view record 32 and original-only mode
+
+The examined category-0 A1 originals contain both a frame camera orientation and
+pilot/main view orientation. Video payloads begin with a little-endian uint32
+header byte length (including that length word). Skip that header and read exact
+120-byte items. The examined INSPs contain one bare 120-byte item without a header.
+The independent reader validates bounds, encoding, monotonic times and unit
+quaternions. Other record/category layouts are refused, not guessed.
+
+| Item offset | Type | Current interpretation |
+| --- | --- | --- |
+| 0 | uint64 LE | Timestamp in microseconds; subtract metadata first-frame timestamp. |
+| 8 | float32 LE | Uninterpreted. |
+| 12, 16 | two float32 LE | Recorded extent values; observed 100/100, projection/zoom meaning unqualified. |
+| 20 | four float32 LE | Embedded camera quaternion, **WXYZ**. |
+| 36 | four float32 LE | Pilot/main-view quaternion, **WXYZ**. |
+| 52–115 | 64 bytes | Other orientation/tracking fields, not interpreted here. |
+| 116 | uint32 LE | View category; only observed category zero is qualified for this reader. |
+
+With `C = Rx(+90°)`, the independently tested coordinate conversion is:
+
+```text
+lens0_to_sphere = C * inverse(camera) * C
+pilot_camera_to_lens0 = inverse(C) * pilot * inverse(C)
+pilot_camera_to_output = rendered_lens0_to_output * pilot_camera_to_lens0
+```
+
+Coordinates are x right, y down, z forward. These records use WXYZ storage;
+record 37 and the exported sidecar use XYZW. Do not interchange them. Slerp uses
+normalized quaternions and shortest arcs; selected interpolation gaps over 250 ms
+or uncovered times fail. Original frame index / rational FPS determines the
+record-32 query time. Output path time is rebased to the selected first frame.
+
+Without `--calibration`, original-only setup uses this camera orientation and
+fits relative lens rotation from up to three original frame pairs. Each candidate
+needs at least 30 inliers, 50% inlier support and at most 1.2° p95 angular residual.
+At least two candidates and a strict majority must agree within 0.75°. A medoid
+selects an observed fit without averaging conflicting geometry. Near file end,
+earlier original frames supply the extra samples. Photos use one checked pair.
+
+Schema 4 stores the lens fingerprint, relative rotation, original-only method,
+embedded orientation convention and fit evidence. It has no fitted sensor mount
+or sensor time offset; those fields are rejected. Camera pose comes from the
+original. A fixed source-relative heading is selected, not surveyed compass north.
+Raw-sensor row correction is disabled in this mode; raw gyro requires an explicit
+schema 1–3 sensor calibration. This is not a new high-rate IMU solution or a claim
+that embedded frame orientation has Studio-equivalent smoothing.
+
+Read-only inspection of local Studio data-reading interfaces helped establish
+record layout/order. Coordinate hypotheses were checked against original data,
+relative motion, independently reference-calibrated vertical and a photo sphere.
+No vendor library, disassembly, profile or code is distributed or loaded at runtime.
+Compatibility beyond the examined category/layout and camera remains unqualified.
+
+## Guided viewport output
+
+Default `--view pilot` adds `OUTPUT.viewport.json` and `OUTPUT.view.html`. The JSON
+has schema 1, kind `a1-pilot-viewport-v1`, `output-presentation-seconds` timebase,
+XYZW order (`xyzw`), source first frame/FPS, one camera-to-sphere quaternion per
+output frame, and the generated video SHA-256. The receipt hashes both companions.
+The HTML embeds that same path and performs WebGL perspective viewing with Slerp,
+free look, zoom and a smooth return to follow. `a1-stitch view` verifies companions
+before starting a loopback-only, allowlisted byte-range server.
+
+`hfov_degrees: 90` is a presentation choice, not a decoded recording of pilot zoom.
+The two source extent values are reported as observations, not assumed to be degrees.
+MP4 pixels remain the complete stabilized sphere; no timed OMAF track or fixed
+flat crop is written. Standard Spherical Video V2 metadata alone does not play
+this path. `--view fixed` suppresses both guided companions.
+
+## JPEG-based INSP and panorama TIFF
+
+The examined A1 INSPs are 8-bit RGB JPEGs with an indexed trailer, a side-by-side
+two-fisheye raster and one record-32 orientation. A 2:1 source raster is not already
+a stitched sphere. Native JPEG dimensions must match metadata and EXIF orientation
+must be absent or one. DNG, non-RGB/non-JPEG and unsupported gamma modes fail.
+
+Photo output is one complete 2:1, RGB16 TIFF page with lossless Deflate. TIFF XMP
+tag 700 contains GPano projection/viewer properties, full/cropped dimensions and
+zero crop offsets following the [Photo Sphere specification](https://developers.google.com/streetview/spherical-metadata).
+An existing ICC profile is copied to tag 34675; none is invented if missing. No
+EXIF/GPS or proprietary trailer is copied. Pixel and output checksums, input
+identity, fit, color/precision limits and implementation are recorded in a receipt.
+Full decompression verifies exact rendered pixels and panorama-tag agreement.
+
+RGB16 preserves interpolation/blend precision. The examined JPEG source is 8-bit;
+this output is not 16-bit capture, RAW development, HDR recovery or an EXIF archive.
+Panorama TIFF recognition is application-dependent.
 
 ## Exposure record 4
 
@@ -138,7 +229,7 @@ X5 defaults; neither its MEI mirror parameter nor an X5 IMU-axis transform is an
 appropriate substitute.
 
 The implementation uses the unified omnidirectional/MEI model with Brown distortion.
-A spherical feature fit estimates the relative lens rotation. A separate reference
+A spherical feature fit estimates the relative lens rotation. For advanced sensor processing, a separate reference
 fit estimates the camera-to-attitude mounting and time offset from the reference's
 vertical. Heading following and creative reframing are independent policies.
 

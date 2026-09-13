@@ -54,3 +54,13 @@ https://docs.opencv.org/4.13.0/d5/d4b/classcv_1_1detail_1_1MultiBandBlender.html
 No rs-sync implementation, Studio code, vendor masks or model weights are bundled.
 The multiband mode uses an independent bounded-belt frequency decomposition, not
 OpenCV's whole-panorama MultiBandBlender class.
+
+The 0.9 record-32 reader and coordinate conversion are independently authored.
+Read-only inspection of local Studio data readers informed byte layout and WXYZ
+storage observations; original-camera data and synthetic rotations were used to
+check interpretation. No vendor routines, disassembly, libraries, profiles or
+constants tables are distributed or required at runtime. The guided WebGL player,
+original-overlap consensus and TIFF pipeline are independent implementations.
+TIFF Photo Sphere XMP follows Google's published properties:
+https://developers.google.com/streetview/spherical-metadata
+Pillow and tifffile are separately installed dependencies under their own licenses.
