@@ -98,6 +98,20 @@ def parser():
     cal.add_argument("--holdouts", type=frames_csv, required=True)
     cal.add_argument("--output", required=True)
     cal.add_argument("--evidence-dir")
+    cal.add_argument(
+        "--frame-clock",
+        choices=["nominal", "exposure"],
+        default="nominal",
+        help="Refit mounting/time alignment with frame-indexed exposure midpoints",
+    )
+    mask = sub.add_parser("mask-template", help="Create a camera-bound native visibility template")
+    mask.add_argument("source")
+    mask.add_argument("--output", required=True)
+    preview = sub.add_parser("mask-preview", help="Inspect native lens exclusions as red overlays")
+    preview.add_argument("source")
+    preview.add_argument("--occlusion-profile", required=True)
+    preview.add_argument("--frame", required=True, type=int)
+    preview.add_argument("--output-dir", required=True)
     migrate = sub.add_parser(
         "migrate-calibration", help="Explicitly migrate a calibration from the initial prototype"
     )
@@ -130,6 +144,9 @@ def parser():
     stitch.add_argument("--backend", choices=["auto", "cpu", "metal"], default="auto")
     stitch.add_argument(
         "--gyro-profile", help="Optional per-unit experimental gyro interpolation profile"
+    )
+    stitch.add_argument(
+        "--occlusion-profile", help="Camera-bound native visibility masks for body/guard exclusion"
     )
     stitch.add_argument(
         "--gyro-anchor-seconds",
@@ -232,6 +249,16 @@ def main(argv=None):
                 if Path(args.output).resolve() == Path(args.source).resolve():
                     raise StitchError("Inspection output would overwrite the source")
                 write_new_json(args.output, result)
+        elif args.command == "mask-preview":
+            from .occlusion import preview
+
+            result = preview(args.source, args.occlusion_profile, args.frame, args.output_dir)
+        elif args.command == "mask-template":
+            from .insv import InsvReader
+            from .occlusion import template
+
+            result = template(InsvReader(args.source).metadata())
+            write_new_json(args.output, result)
         elif args.command == "migrate-calibration":
             from .calibration import migrate_legacy
 
@@ -248,6 +275,7 @@ def main(argv=None):
                 args.holdouts,
                 args.output,
                 evidence=args.evidence_dir,
+                frame_clock=args.frame_clock,
                 progress=progress,
             )
         elif args.command == "verify":
@@ -292,8 +320,14 @@ def main(argv=None):
                 if not isinstance(raw, dict):
                     raise StitchError("Each batch job must be an object")
                 row = raw.copy()
-                for name in ["source", "calibration", "output", "gyro_profile"]:
-                    if name == "gyro_profile" and not row.get(name):
+                for name in [
+                    "source",
+                    "calibration",
+                    "output",
+                    "gyro_profile",
+                    "occlusion_profile",
+                ]:
+                    if name in ["gyro_profile", "occlusion_profile"] and not row.get(name):
                         continue
                     path = Path(row[name])
                     row[name] = str(path if path.is_absolute() else manifest_path.parent / path)
@@ -312,6 +346,7 @@ def main(argv=None):
                 {Path(j.source).resolve() for j in jobs}
                 | {Path(j.calibration).resolve() for j in jobs}
                 | {Path(j.gyro_profile).resolve() for j in jobs if j.gyro_profile}
+                | {Path(j.occlusion_profile).resolve() for j in jobs if j.occlusion_profile}
                 | {manifest_path}
             )
             if outputs & inputs:

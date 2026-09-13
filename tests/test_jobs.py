@@ -86,6 +86,32 @@ def test_dry_run_has_no_filesystem_side_effects(synthetic_camera, tmp_path):
 
 
 @pytest.mark.integration
+def test_exposure_calibration_controls_clock_and_cannot_be_silently_downgraded(
+    synthetic_camera, tmp_path
+):
+    from a1_stitcher.calibration import migrate_legacy, validate_calibration
+
+    profile = json.loads(synthetic_camera["calibration"].read_text())
+    profile.update(schema_version=2, frame_clock="exposure-midpoint-v1", time_shift_seconds=0.0005)
+    validate_calibration(profile)
+    with pytest.raises(StitchError, match="legacy nominal"):
+        migrate_legacy(profile)
+    with pytest.raises(StitchError, match="frame clock"):
+        validate_calibration(dict(profile, schema_version=1))
+    path = tmp_path / "exposure.json"
+    path.write_text(json.dumps(profile))
+    config = replace(options(synthetic_camera, tmp_path / "exposure.mp4"), calibration=str(path))
+    job = plan(config)
+    assert job["recipe"]["frame_clock"]["first_exposure_record"] == 2
+    assert job["recipe"]["heading_reference"]["attitude_seconds"] == 0
+    result = stitch(config)
+    assert result["verification"]["full_decode"]
+    baseline = stitch(options(synthetic_camera, tmp_path / "nominal.mp4"))
+    # A refitted half-shutter offset exactly cancels a constant synthetic exposure.
+    assert result["verification"]["output_sha256"] == baseline["verification"]["output_sha256"]
+
+
+@pytest.mark.integration
 def test_adaptive_seam_complete_job_and_cache_identity(synthetic_camera, tmp_path):
     target = tmp_path / "adaptive.mp4"
     settings = options(synthetic_camera, target, seam="adaptive")

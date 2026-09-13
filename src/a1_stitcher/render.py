@@ -54,6 +54,7 @@ class Options:
     gyro_anchor_seconds: float = 0.1
     rolling_shutter_model: str = "velocity"
     heading_reference_frame: int = 0
+    occlusion_profile: str | None = None
 
 
 def sensor_readout(metadata, fps, mode):
@@ -116,6 +117,8 @@ def plan(options):
     protected = {source, calibration_path}
     if options.gyro_profile:
         protected.add(Path(options.gyro_profile).resolve(strict=True))
+    if options.occlusion_profile:
+        protected.add(Path(options.occlusion_profile).resolve(strict=True))
     if output.resolve() in protected or receipt.resolve() in protected:
         raise StitchError("Output or receipt would overwrite an input")
     if options.export_gpx and gpx_path.resolve() in protected:
@@ -125,6 +128,11 @@ def plan(options):
         raise StitchError(f"Encoding {options.encoding} requires a {encoding['suffix']} output")
     reader = InsvReader(source)
     metadata = reader.metadata()
+    occlusion = None
+    if options.occlusion_profile:
+        from .occlusion import load_profile
+
+        occlusion = load_profile(options.occlusion_profile, metadata)
     gps = decode_gps(reader) if options.export_gpx else None
     gps_data = gpx_bytes(gps) if gps else None
     calibration = load_calibration(calibration_path, metadata)
@@ -138,16 +146,26 @@ def plan(options):
     times, recorded_poses = orientation37(reader)
     fps = Fraction(profile["fps"])
     readout = sensor_readout(metadata, float(fps), options.rolling_shutter)
-    begin = options.first_frame / float(fps) + calibration["time_shift_seconds"]
-    end = (options.first_frame + options.frames - 1) / float(fps) + calibration[
-        "time_shift_seconds"
-    ]
+    exposure_clock = None
+    if calibration.get("frame_clock") == "exposure-midpoint-v1":
+        from .exposure import ExposureClock
+
+        exposure_clock = ExposureClock(reader, fps)
+
+    def frame_times(frames):
+        frames = np.asarray(frames, dtype=np.int64)
+        return (
+            exposure_clock.at_frames(frames) if exposure_clock else frames / float(fps)
+        ) + calibration["time_shift_seconds"]
+
+    begin = float(frame_times([options.first_frame])[0])
+    end = float(frame_times([options.first_frame + options.frames - 1])[0])
     heading_frame = (
         options.first_frame
         if options.heading_reference_frame == -1
         else options.heading_reference_frame
     )
-    heading_time = heading_frame / float(fps) + calibration["time_shift_seconds"]
+    heading_time = float(frame_times([heading_frame])[0])
     if heading_frame >= profile["frames"] or not times[0] <= heading_time <= times[-1]:
         raise StitchError("Heading reference frame is outside the source/attitude range")
     if readout and options.rolling_shutter_model == "trajectory":
@@ -222,6 +240,8 @@ def plan(options):
             if readout and options.rolling_shutter_model == "trajectory"
             else 0,
         ),
+        frame_clock=exposure_clock.report() if exposure_clock else dict(kind="nominal"),
+        occlusion_profile=occlusion,
         heading_reference=dict(source_frame=heading_frame, attitude_seconds=heading_time),
         color="full-range SDR BT.709 to limited-range SDR BT.709; no LUT",
         encoding=encoding,
@@ -320,6 +340,15 @@ def stitch(options, progress=None, dry_run=False):
                 interpolation, _ = trajectory(
                     job["reader"], options.gyro_profile, options.gyro_anchor_seconds
                 )
+            if job["calibration"].get("frame_clock") == "exposure-midpoint-v1":
+                from .exposure import ExposureClock
+
+                samples = (
+                    ExposureClock(job["reader"], fps).at_frames(
+                        np.arange(options.frames) + options.first_frame
+                    )
+                    + job["calibration"]["time_shift_seconds"]
+                )
             pose = interpolation(samples)
             mount = Rotation.from_matrix(job["calibration"]["lens_mount"])
             readout = job["recipe"]["rolling_shutter"]["readout_seconds"]
@@ -347,6 +376,7 @@ def stitch(options, progress=None, dry_run=False):
                 seam=options.seam,
                 fps=float(fps),
                 readout_seconds=readout,
+                occlusion=job["recipe"]["occlusion_profile"],
             )
             cv2.setNumThreads(options.threads)
             ffmpeg = binary("ffmpeg")
@@ -504,7 +534,9 @@ def stitch(options, progress=None, dry_run=False):
                     "Confidence-gated local flow cannot reconstruct occluded detail"
                     if options.seam in ["flow", "adaptive"]
                     else "Angular feather seams; no optical-flow parallax correction",
-                    "No camera/propeller removal",
+                    "Camera-bound visibility masks use the other real lens; cannot reconstruct detail blocked in both lenses"
+                    if options.occlusion_profile
+                    else "No camera/propeller visibility masks applied",
                     "Experimental gyro interpolation anchored to recorded attitude; high-frequency image timing not yet qualified"
                     if options.gyro_profile
                     else "50 Hz recorded attitude; no high-rate IMU fusion",

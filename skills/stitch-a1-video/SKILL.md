@@ -7,7 +7,7 @@ description: Prepare Antigravity A1 INSV originals as stabilized 360 spheres wit
 
 Use `a1-stitch` for original-source preparation. JSON goes to stdout and
 progress/errors to stderr. It produces full spheres, GPS sidecars and receipts;
-it does not assemble a finished film. **This skill describes the 0.6 command set.**
+it does not assemble a finished film. **This skill describes the 0.7 command set.**
 Check `a1-stitch --version` and `a1-stitch stitch --help` before using new flags;
 an older installed CLI must be updated from the public repository or a checked
 local build. Never silently substitute another application named Antigravity.
@@ -88,10 +88,20 @@ limit accuracy; this does not deblur exposure or reconstruct missing detail.
 `--heading-reference-frame 0` keeps a consistent panorama heading across ranges
 from one original. Use the same covered reference frame for all chunks; `-1`
 uses the selected clip start as in 0.5. This is not calibrated compass north.
-Inspection also reports exposure timing/duration statistics. These are diagnostic:
-do not add a guessed half-exposure offset to a profile that already fits video
-and attitude timing. A lower seam residual
-or newer algorithm alone does not establish better image quality.
+For exposure-aware sync, create a **new** calibration with
+`calibrate --frame-clock exposure`. Its schema-2 clock is applied automatically;
+never add a guessed shutter offset or relabel an old profile. Short moving tests
+improved but reference holdouts were mixed, so nominal calibration stays default.
+A lower seam residual or newer algorithm alone does not establish better image quality.
+
+For camera/guard intrusion, use `mask-template`, author observed native-image
+exclusions, then `mask-preview` before supplying `--occlusion-profile`. Read
+[exposure and visibility profiles](references/options.md#exposure-and-visibility-profiles)
+for coordinate conventions and limits. The masks are bound to lens identity and
+recorded guard configuration. They use actual alternate-lens pixels and fail
+when both lenses are blocked; they do not detect every blade or invent hidden
+surfaces. Tight measured outlines preserve more overlap than broad cutoffs.
+Review moving seams, flare and blade blur before accepting the profile.
 
 ## Flight profiles and repeated jobs
 

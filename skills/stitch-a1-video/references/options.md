@@ -1,6 +1,6 @@
 # A1 CLI options and preparation handoff
 
-The 0.6 CLI command line and JSON batch jobs share `Options` fields. Check installed
+The 0.7 CLI command line and JSON batch jobs share `Options` fields. Check installed
 help/version before using this reference. No vendor runtime is required after
 calibration; Metal needs macOS, a usable GPU and Swift command line tools.
 
@@ -28,6 +28,7 @@ paths resolve against the manifest directory. Outputs and receipts never overwri
 | `--rolling-shutter-model velocity` | `velocity` | Qualified average angular velocity; retained because trajectory results are mixed on real footage. |
 | `--heading-reference-frame N` | `0` | Original frame defining fixed sphere yaw for every export from this source; `-1` uses the selected start. Must be covered by attitude/gyro and video. |
 | `--rolling-shutter off` | — | Disable row correction for a controlled comparison. |
+| `--occlusion-profile PATH` | absent | Camera/accessory-bound native visibility masks; alternate-lens replacement, fail on holes. See the profile section below. |
 | `--gyro-profile PATH` | absent | Experimental anchored raw-gyro interpolation; requires a matching per-unit profile. |
 | `--gyro-anchor-seconds N` | `0.1` | With a gyro profile, use recorded-attitude anchors spaced by 0.02–1 second; 0.02 retains all recorded anchors. |
 | `--no-stabilization` | false | Hold global orientation at the first pose for diagnostics; row correction is a separate setting. |
@@ -119,7 +120,7 @@ Keep recorded attitude as the default until matched moving imagery supports a ch
   the same frame rate and full-sphere projection. Per-frame alignment hides some
   motion, so also review an unaligned or single-rotation moving comparison.
 - `calibrate`: required source/reference/first-source-frame/holdouts/output,
-  optional `--samples` and `--evidence-dir`; read the main skill for conventions.
+  optional `--samples`, `--evidence-dir` and `--frame-clock nominal|exposure`; read the main skill for conventions.
 - `migrate-calibration INPUT --output NEW_PROFILE`: explicit initial-prototype
   schema migration; retained evidence does not gain new quality qualification.
 - `doctor`, `--version`, and each command's `--help` report installed capabilities.
@@ -150,9 +151,9 @@ Keep recorded attitude as the default until matched moving imagery supports a ch
 
 `a1-stitch batch jobs.json --dry-run` preflights every job;
 `a1-stitch batch jobs.json --resume` processes sequentially and verifies completed
-outputs. Optional stitch fields include `gyro_profile`, `gyro_anchor_seconds`, `threads`, `timeout`,
+outputs. Optional stitch fields include `occlusion_profile`, `gyro_profile`, `gyro_anchor_seconds`, `threads`, `timeout`,
 `no_stabilization`, `keep_work` and `resume`. CLI spelling changes hyphens to
-underscores in JSON. Each source/calibration/output/gyro-profile path is relative
+underscores in JSON. Each source/calibration/output/gyro-profile/occlusion-profile path is relative
 to the manifest directory unless absolute. Do not add unknown metadata fields to
 jobs; put editorial associations in a separate handoff document.
 
@@ -190,3 +191,66 @@ used events; it does not certify the remaining shots as fresh. Original-frame
 bindings connect new exports/crops to prior events. A ready handoff preserves
 full-resolution paths, trim ranges, color, receipts and any flight-track sidecar;
 it neither assembles a film nor grants publication approval.
+
+## Exposure and visibility profiles
+
+`calibrate --frame-clock exposure` refits mount/time alignment against a
+source-matched Studio sphere using frame-indexed exposure midpoints. All other
+calibration requirements remain: an exact first-source-frame mapping, varied
+training observations, disjoint holdouts and a new output file. Default
+`--frame-clock nominal` retains schema 1. The exposure result uses schema 2 and
+requires CLI 0.7 or newer. Never edit the schema/clock label of an old fitted
+profile; the constant offset would then describe the wrong clock.
+
+The profile determines the stitch clock automatically. Exposure timestamps minus
+half shutter duration feed attitude, heading and row queries; no output frames
+are shifted or interpolated. Missing frame-zero anchors, gaps, unsupported drift,
+overlong exposure and missing selected-frame coverage fail preflight. These
+checks do not prove image timing. Compare matched motion and holdouts: the first
+0.7 trials improved short motion diagnostics but worsened aggregate reference
+holdouts, so nominal remains the default.
+
+For a visible camera/guard region:
+
+```sh
+a1-stitch mask-template recording.insv --output visibility.json
+# Fill the new template with measured native-image exclusions before previewing.
+a1-stitch mask-preview recording.insv --occlusion-profile visibility.json \
+  --frame 300 --output-dir visibility-review
+
+a1-stitch stitch recording.insv --calibration calibration.json \
+  --occlusion-profile visibility.json --first-frame 300 --frames 180 \
+  --output masked-sphere.mp4
+```
+
+The template contains `schema_version: 1`, `kind: a1-native-visibility-v1`, the
+camera's `lens_fingerprint`, recorded `propeller_guard_status`, `feather_pixels`
+and two `lenses` entries. Preserve the generated identity/configuration fields.
+A source with unknown guard state cannot create or use a profile; do not guess it.
+Each lens entry supports:
+
+- `exclude_polygons`: up to 64 polygons of 3–128 x/y vertices each, normalized
+  from 0 to 1 over the **native square lens image**, origin at top left. Mark the
+  obstruction, including its observed motion/blur envelope. Lens 0 and lens 1
+  use separate coordinate systems; this is not a panorama mask.
+- `max_angle_degrees`: optional optical-axis half-angle, 85–110°, or `null`.
+  A broad angle cutoff can discard good overlap, expose flare or leave holes;
+  prefer a measured local outline where that preserves more real scene detail.
+- Shared `feather_pixels`: 1–16, default 3, measured on the fixed **512×512 mask**
+  grid. It softens the allowed side of an exclusion without making excluded
+  pixels visible again. It is not a count of 8K output pixels.
+
+At least one angle limit or polygon must be supplied. `mask-preview` writes
+source/overlay PNG pairs and a frame/profile report to a new directory; red
+marks exclusions. It samples at up to 1024 pixels per lens and does not render
+or qualify a finished sphere. Check several frames, including sharp turns and
+longer exposures. Native masks follow lens projection and rolling-shutter
+correction on both backends, and masked pixels are excluded from seam analysis.
+
+The final blend replaces exclusions using actual pixels from the other lens,
+including fallback outside the usual seam preference. If neither lens covers a
+pixel, rendering fails rather than publishing a hole or hallucinated fill.
+A profile can still produce parallax, flare or a visible seam. This is authored
+visibility exclusion, not automatic rotating-blade detection, learned inpainting,
+shadow removal or a complete Studio equivalent. Keep it opt-in and review the
+whole intended interval before accepting a production master.

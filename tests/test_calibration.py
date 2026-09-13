@@ -52,6 +52,36 @@ def test_reference_fit_recovers_mount_and_timing_on_unseen_frames():
     assert holdout["maximum_degrees"] < 0.001
 
 
+def test_exposure_fit_uses_variable_midpoints_and_recovers_mount(tmp_path):
+    from test_exposure import reader as exposure_reader
+
+    from a1_stitcher.exposure import ExposureClock
+
+    shutters = [0.002, 0.006, 0.014, 0.004, 0.01, 0.008, 0.003, 0.018, 0.012, 0.005]
+    payload = b"".join(struct.pack("<Qd", 1000000 + i * 100000, s) for i, s in enumerate(shutters))
+    clock = ExposureClock(exposure_reader(tmp_path, payload), 10)
+    reader = AttitudeReader()
+    times, poses = orientation37(reader)
+    slerp = Slerp(times, poses)
+    mount = Rotation.from_euler("xyz", [-0.15, 0.004, -np.pi / 2])
+    world = Rotation.from_matrix([[0, 1, 0], [0, 0, 1], [1, 0, 0]])
+    offset = 0.017
+    observations = [
+        dict(
+            raw_seconds=i / 10,
+            lens_to_reference=(world * slerp(clock.at_frames([i])[0] + offset) * mount)
+            .as_matrix()
+            .tolist(),
+        )
+        for i in range(1, 10)
+    ]
+    fitted, shift = fit_gravity(reader, observations[:6], frame_clock=clock)
+    assert shift == pytest.approx(offset, abs=1e-5)
+    assert (fitted.inv() * mount).magnitude() < 1e-5
+    checked = score_gravity(reader, observations[6:], fitted, shift, frame_clock=clock)
+    assert checked["maximum_degrees"] < 0.001
+
+
 def test_still_reference_is_underconstrained():
     reader = AttitudeReader()
     with pytest.raises(StitchError, match="variation"):

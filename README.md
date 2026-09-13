@@ -8,7 +8,7 @@ and the timestamped attitude record. It renders a complete 360° sphere, adds
 standard spatial metadata, and verifies the finished video. Once a camera has
 been calibrated, conversion does not require Antigravity Studio.
 
-**Status: alpha, with trajectory-based sensor-row correction in 0.6.0.**
+**Status: alpha, with opt-in exposure synchronization and aircraft visibility masks in 0.7.0.**
 Defaults now produce an 8192×4096 sphere from native lens frames, with 16-bit
 image processing and 10-bit HEVC encoding. ProRes 422 HQ is available for finishing.
 An independent Metal renderer accelerates supported Macs; the CPU reference
@@ -21,7 +21,11 @@ and [Metal performance measurements](docs/quality-v0.5.md).
 Experimental raw-gyro interpolation is available with a per-unit calibration and
 separate-recording transfer validation. Recorded attitude remains the default:
 a higher sensor sample rate alone does not qualify high-frequency image correction.
-Camera/propeller removal, severe occlusion and broader camera coverage remain open.
+Exposure-aware calibration and camera-bound visibility masks are now available.
+Masks replace excluded housing/propeller pixels only where the other lens sees
+the scene; automatic blade detection and reconstruction remain open.
+See [the 0.7 evidence and limits](docs/quality-v0.7.md). Severe occlusion and
+broader camera coverage remain open.
 This is an independent implementation, not an official Antigravity or Insta360
 product or a reproduction of proprietary FlowState/AI stitching.
 
@@ -48,11 +52,12 @@ not measured image-quality scores.
 | Spatial detail and compression | Default 8192×4096 output from native-size lenses; optional ProRes 422 HQ or smaller review encodes. | Projection interpolation, seam blending and another lossy encode change pixels. Native-resolution processing avoids the former 1440-pixel lens downsample; an 8K sphere does not imply 8K detail in a narrow reframe. | **Medium** at the new defaults; **High if a small preview is used for finishing**. Render a fresh master from INSV when changing quality settings. |
 | Color precision and chroma | Default 16-bit image processing → 10-bit 4:2:0 HEVC, CRF 12. ProRes 422 HQ offers 10-bit 4:2:2; H.264 review mode uses 8-bit 4:2:0. | The tested original is 8-bit 4:2:0 SDR. Extra processing precision reduces new rounding but does not create captured dynamic range or missing color detail. HEVC and ProRes are still lossy generations. | **Medium** for grading — use HEVC10 or ProRes and avoid repeated intermediate re-encodes. This fixes the old always-8-bit output limitation, not the source's capture limits. |
 | Color space, range and log/HDR | Tagged limited-range SDR BT.709 suitable for SDR Resolve/Fusion grading. No LUT is applied. | Tested sources are full-range SDR BT.709. The range conversion changes signal encoding, not intended display contrast when interpreted correctly. Log/HDR/higher-bit-depth inputs remain rejected. | **Low** for correctly interpreted supported SDR; **High if log/HDR ingest is required** — it is unsupported, not silently flattened. |
-| Exposure telemetry | `inspect` reports exposure duration, sample timing, gaps and the possible half-exposure variation. | Exposure samples are not copied into MP4 or applied to the calibrated frame clock. The profile may already absorb an exposure offset; dynamic exposure/gyro synchronization remains unqualified. | **High** for future sensor timing work; **Low** for routine cutting. Keep INSV; do not add a second guessed timing correction. |
+| Exposure telemetry and synchronization | `inspect` reports shutter/timestamp statistics. Optional schema-2 calibration fits an exposure-midpoint attitude clock; the receipt records it. | Raw exposure samples are not copied into MP4. The chosen timing is baked into stabilization, while output frame cadence stays unchanged. Two short moving tests were promising but reference holdouts were mixed. | **High** for future sensor reprocessing; **Low** for routine cutting. Keep INSV and refit with `calibrate --frame-clock exposure`; never append a guessed offset to an old profile. |
+| Camera/propeller visibility | Optional camera/accessory-bound native masks select visible pixels from the other real lens; the profile is stored in the receipt. | Lens selection is baked into the composite. This is authored exclusion, not automatic blade detection or reconstruction of doubly occluded detail. Broad masks can worsen flare or seams; uncovered pixels cause a failed job. | **High when the aircraft intrudes**; **Low when the default seam already avoids it**. Keep originals to revise the profile and inspect moving boundaries. |
 | Frame timing and selected duration | Selected consecutive frames at the original constant frame rate, with exact first-source-frame/count in the receipt. | Unselected frames are absent from this working copy. No retiming or frame interpolation is added by stitching. | **Medium** — include handles; the archive is needed for longer trims or a different event. |
 | Audio | Typical tested A1 inputs have no audio track. | Inputs containing audio are refused; this release has no audio-preserving conversion path. | **High if the input contains sound** — conversion is blocked rather than silently dropping it. Keep any separate sound recordings for the editor. |
 | GPS flight profile | Optional GPX sidecar with recorded position, UTC, reported elevation and speed/course extensions; checksum in the video receipt. Standalone extraction is also available. | GPS is not embedded as the original telemetry track. GPX covers the entire source recording, even for a short video selection. Exact UTC/video alignment and altitude datum remain unqualified; missing/invalid GPS causes the requested export to fail. | **Medium** for editorial maps; **High for precise flight/sensor analysis**. Keep originals and the sidecar; do not treat reported elevation as verified AGL or infer a complete multi-file flight. |
-| Other camera data and Studio controls | Standard sphere/stereo tags plus a receipt containing source identity, frame mapping, profiles, versions, backend and output checksum. | Other telemetry/subtitle tracks, the vendor trailer, raw sensor records and proprietary project/edit controls are not copied. This does not reproduce FlowState/AI stitching, camera/propeller removal or all Studio behaviors. | **High** for future camera-specific reprocessing; **Medium** for everyday editing. Neither receipt nor GPX is a complete metadata archive. |
+| Other camera data and Studio controls | Standard sphere/stereo tags plus a receipt containing source identity, frame mapping, profiles, versions, backend and output checksum. | Other telemetry/subtitle tracks, the vendor trailer, raw sensor records and proprietary project/edit controls are not copied. This does not reproduce FlowState/AI stitching, automatic aircraft removal or all Studio behaviors. | **High** for future camera-specific reprocessing; **Medium** for everyday editing. Neither receipt nor GPX is a complete metadata archive. |
 | Container and editor interoperability | Standard MP4 (HEVC/H.264) or MOV (ProRes), fast-start layout and Spherical Video V2 metadata. | INSV was already an MP4-family container, but with separate lens tracks and proprietary data. Conversion adds a usable sphere; renaming/remuxing alone cannot. A 360-aware editor is still needed for reframing. | **Low** loss and a substantial interoperability gain. The original and the generated sphere serve different purposes. |
 | CPU versus Metal | The same calibrated projection, seam and row-correction models; chosen backend is recorded. | Small numeric/interpolation differences remain between implementations. GPU speed does not add source detail, restore blur or alter which metadata is preserved. | **Low** on qualified comparisons — choose automatic Metal for speed or CPU for the reference path; neither removes the need for motion review. |
 
@@ -107,7 +112,7 @@ python3 -m venv .venv
 .venv/bin/a1-stitch doctor
 
 # Or install the tagged GitHub source as an isolated CLI with uv
-uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.6.0'
+uv tool install 'git+https://github.com/Oceanswave/a1-stitcher.git@v0.7.0'
 a1-stitch doctor
 ```
 
@@ -262,6 +267,34 @@ seam. It seeks a closed path through areas of better lens agreement and limits
 path movement to 6°/second. It can avoid some difficult overlaps but does not
 identify or remove a camera body, recover hidden detail, or guarantee improvement.
 The default remains `flow`. Compare both modes on the intended shot.
+
+### Exposure-aware synchronization and camera visibility
+
+The new options are explicit because their benefit depends on the source.
+Create a **new** calibration with `calibrate --frame-clock exposure` using the
+same source-matched Studio reference procedure above. The resulting schema-2
+profile controls exposure-midpoint queries automatically during stitching;
+normal schema-1 profiles retain nominal timing. Do not manually relabel a profile.
+The exposure clock leaves output frame rate and color unchanged.
+
+```sh
+a1-stitch mask-template recording.insv --output visibility.json
+# Edit the template using observed native housing/guard outlines, then inspect it:
+a1-stitch mask-preview recording.insv --occlusion-profile visibility.json \
+  --frame 300 --output-dir visibility-review
+
+a1-stitch stitch recording.insv --calibration calibration.json \
+  --occlusion-profile visibility.json --first-frame 300 --frames 180 \
+  --output masked-sphere.mp4
+```
+
+An empty mask template is rejected for rendering. Native-image polygons use
+normalized x/y coordinates, with lens 0 and lens 1 kept separate. Profiles check
+both embedded lens identity and recorded guard configuration. The renderer
+uses actual pixels from the other lens and fails if both are unavailable.
+There is no automatic blade detector or invented fill. Read the
+[profile instructions](skills/stitch-a1-video/references/options.md#exposure-and-visibility-profiles)
+and [measured results](docs/quality-v0.7.md) before choosing these options.
 
 ### Metal performance
 

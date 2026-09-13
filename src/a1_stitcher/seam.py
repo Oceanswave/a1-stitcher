@@ -154,7 +154,14 @@ class OverlapSeam:
             axis=-1,
         ).astype(np.float32)
 
-    def prepare(self, frames, angular_velocity=None, readout_seconds=0, row_quaternions=None):
+    def prepare(
+        self,
+        frames,
+        angular_velocity=None,
+        readout_seconds=0,
+        row_quaternions=None,
+        visibility=None,
+    ):
         # Flow/CLAHE analyze 8-bit proxies; final remapping retains the original
         # 16-bit signal when a finishing encode is requested.
         if frames[0].dtype == np.uint16:
@@ -174,6 +181,9 @@ class OverlapSeam:
                 for i, lens in enumerate(self.lenses)
             ]
         valid = maps[0][2] & maps[1][2]
+        if visibility is not None:
+            for i, (u, v, _) in enumerate(maps):
+                valid &= visibility.sample(i, u, v) >= 0.999
         bands = [cv2.remap(frame, u, v, cv2.INTER_CUBIC) for frame, (u, v, _) in zip(frames, maps)]
         self.flows, self.confidence = matched_flow(*bands, valid, self.pixel)
         x, y = np.meshgrid(
