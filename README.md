@@ -28,7 +28,7 @@ the scene. Multi-frame detection now proposes fixed obstructions for review; it
 does not identify every blade. Reviewed proposals also check the alternate image
 for clipping and low contrast before forced replacement.
 In matched 20-second gyro controls, the image timing fit lowered the motion
-diagnostic by about 36% on its ridge interval and 28% on a separate forest recording.
+diagnostic by about 36% on its ridge interval and 24% on a separate forest recording.
 Studio remained smoother; local geometry and native-resolution quality are separate gates.
 See [the 0.8 evidence and limits](docs/quality-v0.8.md). Severe occlusion and
 broader camera coverage remain open.

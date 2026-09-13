@@ -24,21 +24,23 @@ The compatibility check therefore allows 1% readout variation; it rejects larger
 scan changes and different frame rates. Each source retains its own measured
 readout before the fitted multiplier is applied.
 
-A complete 20.02-second ridge render with gyro interpolation, the image refit and
-trajectory row correction had a p95 angular-acceleration diagnostic of 0.14698°
-per frame squared, versus 1.03823 for recorded attitude. The corresponding Studio
-reference measured 0.02352. That is about an 86% reduction relative to the older
-processing path, with substantial remaining separation from Studio. It must not
-be attributed to the 1.7 ms change alone: gyro interpolation, exposure clock and
-row model changed too. A matching gyro-only control isolates the new fit: 0.22939 → 0.14698, about
-35.9% lower. On a separate forest recording with the same capture mode, the
-matching gyro control measured 0.22397 versus 0.16215 with the ridge-derived
-profile (27.6% lower). Studio measured 0.13033 there. Forest motion tracking
-succeeded on 540/599 candidate pairs and 541/599 reference pairs; missing pairs
-were not bridged. Local residual p95 was slightly worse with the forest image
-fit (0.66013° → 0.66612°), reinforcing that motion and local geometry must be
-judged separately. These comparisons used 1920-pixel lens decodes and 2K/H.264
-review spheres, with identical settings within each timing pair.
+Two complete 20.02-second intervals compare matched gyro/exposure/trajectory
+controls with the image refit. Both members of each pair use the final tapered
+multiband model, 1920-pixel lens decodes and 2K/H.264 review spheres.
+
+| Interval | Gyro control | Image refit | Reduction | Studio reference | Tracked candidate pairs |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ridge, fitting interval | 0.22868 | 0.14711 | 35.7% | 0.02352 | 599/599 |
+| Forest, separate recording | 0.20984 | 0.15861 | 24.4% | 0.13033 | 541/599 |
+
+Motion values are p95 angular acceleration in degrees per frame squared, measured
+from rigid image tracks; they are not absolute horizon error. The forest reference
+measured 541/599 pairs. Missing pairs were not bridged. Local residual p95 on
+forest changed from 0.65941° to 0.66033°, so motion and local geometry
+need separate assessment. Studio remains smoother on both intervals. A prior
+recorded-attitude ridge screening measured 1.03823 versus 0.02352 for Studio;
+the combined gyro/image path is substantially steadier, but that larger change
+cannot be attributed to the image timing fit alone.
 
 ## Obstruction proposals
 
@@ -84,19 +86,48 @@ observations is recorded separately from all-frame automated coverage.
 
 ## Final qualification results
 
-Local validation includes 342 tests, including 66 cases requiring actual Metal
-execution, with 88% coverage. The first Rockybot CI pass ran Python 3.12 and
-3.13: 274 passed and 66 GPU-specific cases skipped in each Linux job. Ruff and
+Local validation passed 342 tests, including 66 cases requiring actual Metal
+execution, with 88% coverage. Rockybot CI ran Python 3.12 and
+3.13: 276 passed and 66 GPU-specific cases skipped in each Linux job. Ruff and
 skill validation passed. Package build and an outside-checkout wheel test
 produced and fully decoded a native 8192×4096, 10-bit HEVC export using image
 timing, trajectory rows, reviewed visibility, multiband and GPX together.
 The three-frame installed-package test is a technical integration proof, not
 whole-motion qualification. GPX contained 398 points covering its entire source.
 
-Longer comparison qualification is recorded in the table below after the
-remaining native controls finish. Development comparison receipts can retain
-the preceding version label; they record the actual processing settings and
-source-tree fingerprint. The installed-package proof uses version 0.8.0.
+Two native-lens comparisons covered 600 consecutive frames each: full
+3840-pixel lens decodes, 4096×2048 ProRes 422 HQ output, recorded attitude, and
+otherwise matching settings. The final multiband renders and unchanged flow
+controls passed full decode with no uncovered pixels. These are 20.02-second
+sequences, not isolated stills.
+
+| Native-lens interval | Flow brightness variation | Final multiband brightness variation | Studio brightness variation | Flow / multiband local residual p95 (°) |
+| --- | ---: | ---: | ---: | ---: |
+| Chase | 0.0019391 | 0.0019268 | 0.0009476 | 0.64661 / 0.64396 |
+| Forest | 0.0034216 | 0.0034313 | 0.0027949 | 0.66177 / 0.65801 |
+
+Brightness variation is the p95 absolute second difference of six view means,
+normalized to 0–1. It includes scene/exposure changes and is not a seam-specific
+quality score. Small changes in this diagnostic do not justify promoting
+multiband over flow globally. Native detail, moving seams and flare still require
+visual review; the final support taper has stronger controlled synthetic evidence
+than evidence of a broad real-footage advantage.
+
+Four additional 600-frame, 2K/H.264 intervals were screened during development:
+ridge action, evening mountains, ridge follow and ridge opening. All decoded,
+and each benchmark attempted all 599 motion pairs. Their recorded-attitude motion
+p95 values were 1.03823, 0.44037, 0.99855 and 1.19913, respectively; the corresponding
+Studio values were 0.02352, 0.00969, 0.10842 and 0.01924. These screening renders
+precede the final support taper and establish remaining motion differences,
+not final-model seam qualification. Across the native and screening sets, six
+unique source intervals were checked. They all come from one camera unit.
+
+Development receipts retain their actual version label, settings and source-tree
+fingerprint; they were not relabeled after rendering. The final timing/native
+repeats and installed-package proof use 0.8.0. Automated all-frame coverage and
+sampled browser/native-overlay inspection remain separate: uninterrupted human
+acceptance of every sphere direction is not claimed. All new algorithms remain
+opt-in, while established finishing quality and automatic Metal stay the defaults.
 
 No personal footage, original filenames, per-unit profiles, vendor binaries,
 models or disassembly are distributed. See [format notes](format.md),

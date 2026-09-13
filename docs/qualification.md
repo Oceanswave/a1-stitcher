@@ -52,7 +52,8 @@ checks cover:
 - Process deadlines, early EOF, stalled encoders, cleanup, output locks, no-clobber
   writes, receipt rollback, checksum-based reuse and batch path handling.
 
-CI runs on macOS and Linux, with Python 3.12 and Linux Python 3.13. The CI result
+CI runs Python 3.12 and 3.13 on the self-hosted Rockybot Linux runner. Actual
+macOS Metal parity is tested locally and reported separately. The CI result
 for an exact commit is the authority for that commit; a workflow definition alone
 is not evidence that those runners passed. The installed wheel is checked outside
 the checkout so an editable source import cannot hide packaging mistakes.
