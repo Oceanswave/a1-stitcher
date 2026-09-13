@@ -212,6 +212,11 @@ def test_refitted_calibration_enforces_gyro_and_readout_dependencies(
     config.update(gyro_profile=str(gyro_path), rolling_shutter_model="trajectory")
     recipe = plan(Options(**config))["recipe"]
     assert recipe["rolling_shutter"]["readout_seconds"] == pytest.approx(0.018)
+    monkeypatch.setattr(render, "sensor_readout", lambda *a: 0.0201)
+    assert plan(Options(**config))["recipe"]["rolling_shutter"]["readout_seconds"] == pytest.approx(
+        0.01809
+    )
+    monkeypatch.setattr(render, "sensor_readout", lambda *a: 0.02)
     with pytest.raises(StitchError, match="different gyro"):
         plan(Options(**config, gyro_anchor_seconds=0.2))
     monkeypatch.setattr(render, "sensor_readout", lambda *a: 0.018)
@@ -345,3 +350,34 @@ def test_multiband_limits_temporal_gain_change_and_resets_unsupported_analysis(m
     model.prepare(frames)
     assert np.linalg.norm(model.log_ratio) < old
     assert not model.correction.any()
+
+
+@pytest.mark.parametrize("focal_scale", [1.0, 0.9])
+def test_multiband_reduces_broad_brightness_step_without_changing_distant_pixels(
+    monkeypatch, focal_scale
+):
+    import a1_stitcher.seam as seam
+
+    # Isolate image fusion from correspondence and gain estimation: two known
+    # uniform signals with valid overlap and an unresolved brightness mismatch.
+    def correspondence(a, b, valid, pixel):
+        return [np.zeros((*valid.shape, 2), np.float32)] * 2, [valid.astype(np.float32)] * 2
+
+    monkeypatch.setattr(seam, "matched_flow", correspondence)
+    monkeypatch.setattr(
+        seam, "color_ratio", lambda a, b, v: (np.zeros((1, a.shape[1], 3), np.float32), False)
+    )
+    meta = metadata(128)
+    for index in [2, 3, 21, 22]:
+        meta["offset_v3"][index] *= focal_scale
+    lenses = lenses_from_metadata(meta, 128)
+    relative = Rotation.from_euler("y", 180, degrees=True).as_matrix()
+    frames = [np.full((128, 128, 3), value, np.uint16) for value in [30000, 36000]]
+    outputs = [
+        TiledStitcher(lenses, relative, 1024, seam=mode).stitch(frames, np.eye(3))[0]
+        for mode in ["flow", "multiband"]
+    ]
+    edges = [np.max(np.abs(np.diff(image[256, 225:288, 0].astype(float)))) for image in outputs]
+    assert edges[1] < edges[0] * 0.5
+    # Stay away from the poles, where this camera-fixed seam crosses longitude.
+    np.testing.assert_array_equal(outputs[0][200:312, 480:544], outputs[1][200:312, 480:544])

@@ -235,6 +235,12 @@ class OverlapSeam:
             difference = corrected[0] - corrected[1]
             alphas = [smoothstep((latitude / np.radians(d) + 1) / 2) for d in [1.2, 2.4, 4.8]]
             correction = np.zeros_like(difference)
+            # Fade inside measured support instead of cutting the correction at
+            # a binary blur threshold. A hard edge can create a second seam when
+            # the available overlap is narrower than a low-frequency band.
+            pad = 16
+            padded_support = np.pad(support.astype(np.uint8), ((0, 0), (pad, pad)), mode="wrap")
+            distance = cv2.distanceTransform(padded_support, cv2.DIST_L2, 5)[:, pad:-pad]
             for k, sigma in enumerate([1.2, 3.5]):
                 # Pad only longitude periodically; latitude uses edge replication.
                 pad = int(np.ceil(sigma * 4))
@@ -249,9 +255,8 @@ class OverlapSeam:
 
                 weight = blur(support.astype(np.float32))
                 low = blur(difference * support[..., None]) / np.maximum(weight[..., None], 1e-5)
-                correction += (
-                    (alphas[k + 1] - alphas[k])[..., None] * low * (weight > 0.9)[..., None]
-                )
+                trust = smoothstep((weight - 0.5) / 0.5) * smoothstep((distance - 1) / (2 * sigma))
+                correction += (alphas[k + 1] - alphas[k])[..., None] * low * trust[..., None]
             self.correction = (np.clip(correction, -0.1, 0.1) * support[..., None]).astype(
                 np.float32
             )

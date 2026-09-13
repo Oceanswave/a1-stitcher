@@ -12,7 +12,7 @@
   state. Schema-2 visibility checks alternate clipping/contrast during forced
   replacements. Empty templates and unreviewed proposals can be previewed safely.
 - Add opt-in `--seam multiband`: preserve native detail while blending two broader
-  frequency bands, with confidence gates and bounded per-frame gain updates on
+  frequency bands, with tapered support and bounded per-frame gain updates on
   CPU/Metal. Established finishing defaults remain unchanged.
 - Add synthetic timing, motion, mask, decode, no-overwrite and GPU parity tests;
   update the source/archive importance table, format docs and discoverable skill.

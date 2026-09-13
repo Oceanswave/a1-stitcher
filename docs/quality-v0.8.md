@@ -19,6 +19,10 @@ error changed from 0.07878° to 0.07777° (1.3% improvement); p95 changed from 0
 to 0.52419° (0.4% worse, within the explicit 1% tail tolerance). This is a small
 local gain, not proof of universally better stabilization. The schema-3 result
 is bound to the frame-rate/readout mode, gyro profile and 0.1-second anchor spacing used during fitting.
+Three same-frame-rate recordings reported native readouts of 21.267–21.325 ms.
+The compatibility check therefore allows 1% readout variation; it rejects larger
+scan changes and different frame rates. Each source retains its own measured
+readout before the fitted multiplier is applied.
 
 A complete 20.02-second ridge render with gyro interpolation, the image refit and
 trajectory row correction had a p95 angular-acceleration diagnostic of 0.14698°
@@ -61,6 +65,11 @@ difference bands over wider angular transitions. It operates in the calibrated
 ±8° overlap belt, uses correspondence/visibility/clipping support gates, and caps
 per-frame log-gain changes. It does not average pixels over time. CPU and Metal
 share the analysis and differ only in final projection/sampling arithmetic.
+An added regression exposed a hard correction boundary when the measured overlap
+was narrow. The final model fades inside valid support. In isolated 16-bit constant
+signal tests, the maximum adjacent-pixel brightness step falls from 1,308 code
+values to 527 with narrow overlap and 342 with wider overlap; distant pixels stay
+identical. This measures synthetic blending behavior, not real-footage improvement.
 This is an independent bounded-belt implementation, not Studio's image-fusion code
 or OpenCV's full-panorama MultiBandBlender.
 
@@ -75,7 +84,7 @@ observations is recorded separately from all-frame automated coverage.
 
 ## Final qualification results
 
-Local validation passed 340 tests, including 66 cases requiring actual Metal
+Local validation includes 342 tests, including 66 cases requiring actual Metal
 execution, with 88% coverage. The first Rockybot CI pass ran Python 3.12 and
 3.13: 274 passed and 66 GPU-specific cases skipped in each Linux job. Ruff and
 skill validation passed. Package build and an outside-checkout wheel test

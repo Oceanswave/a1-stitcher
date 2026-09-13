@@ -148,7 +148,12 @@ def plan(options):
     readout = sensor_readout(metadata, float(fps), options.rolling_shutter)
     visual_sync = calibration.get("visual_sync") if calibration["schema_version"] == 3 else None
     if visual_sync:
-        if visual_sync["capture_mode"] != dict(fps=str(fps), readout_seconds=readout):
+        mode = visual_sync["capture_mode"]
+        # Embedded readout is measured, not an exact mode enum: same-mode real
+        # recordings differ slightly. Admit <=1% variation, not a new scan mode.
+        if mode["fps"] != str(fps) or not np.isclose(
+            readout, mode["readout_seconds"], rtol=0.01, atol=1e-6
+        ):
             raise StitchError(
                 "Image timing calibration belongs to a different frame-rate/readout mode"
             )

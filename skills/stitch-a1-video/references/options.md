@@ -302,3 +302,9 @@ bounded low-frequency difference terms with 2.4°/4.8° transitions while native
 high-frequency detail keeps the 1.2° transition. The analysis belt remains ±8°;
 unsupported/clipped/masked regions do not receive a correction. Per-frame log-gain
 updates are limited to 0.01 in this mode. Default `flow` behavior is retained.
+
+Image timing capture-mode checks require the same exact frame rate and allow
+up to 1% readout variation (plus 1 µs numerical tolerance), because embedded
+readout measurements differ slightly between same-mode recordings. Larger scan
+changes require a new fit. The multiplier still applies to each source
+recording's own readout measurement.

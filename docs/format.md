@@ -229,5 +229,13 @@ The profile and policy are included in receipts and processing identity.
 
 The optional `multiband` seam uses three frequency bands in the existing overlap:
 native high-frequency detail plus two confidence-gated low-frequency differences.
+Corrections taper inside available support so a narrow overlap does not introduce
+an abrupt blend boundary. Unsupported or occluded pixels contribute no correction.
 This is a bounded belt implementation, not a full-resolution panorama pyramid or
 a reproduction of Studio image fusion. All changes are baked into rendered pixels.
+
+Image timing capture-mode checks require the same exact frame rate and allow
+up to 1% readout variation (plus 1 µs numerical tolerance), because embedded
+readout measurements differ slightly between same-mode recordings. Larger scan
+changes require a new fit. The multiplier still applies to each source
+recording's own readout measurement.
