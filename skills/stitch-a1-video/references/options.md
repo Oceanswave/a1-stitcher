@@ -282,7 +282,7 @@ not an independent-camera or separate-recording qualification.
 
 A rejected timing analysis returns exit 0 with JSON `status: rejected` and writes
 only evidence. Check status before attempting a render. A schema-3 calibration
-records readout scale, base-profile fingerprint, gyro fingerprint and anchor
+records capture mode, readout scale, base-profile fingerprint, gyro fingerprint and anchor
 spacing. Rendering requires that gyro profile/spacing, `--rolling-shutter auto`
 and `--rolling-shutter-model trajectory`; incompatible combinations fail preflight.
 The base nominal/exposure clock remains explicit. Older CLIs reject schema 3.

@@ -222,6 +222,7 @@ def calibrate(
             readout_scale=fit["readout_scale"],
             gyro_profile_fingerprint=fingerprint(gyro),
             gyro_anchor_seconds=anchor_seconds,
+            capture_mode=dict(fps=video["fps"], readout_seconds=readout),
             base_calibration_fingerprint=fingerprint(cal),
             qualification=fit,
         ),

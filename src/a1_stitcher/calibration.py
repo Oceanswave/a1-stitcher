@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from fractions import Fraction
 
 import numpy as np
 from scipy.optimize import least_squares
@@ -91,7 +92,19 @@ def validate_calibration(data, metadata=None):
                     or not lower <= value <= upper
                 ):
                     raise ValueError(f"invalid image timing {key}")
-    except (KeyError, TypeError, ValueError) as exc:
+            mode = sync["capture_mode"]
+            rate = Fraction(mode["fps"])
+            readout = mode["readout_seconds"]
+            if (
+                not isinstance(mode["fps"], str)
+                or not 0 < rate <= 120
+                or isinstance(readout, bool)
+                or not isinstance(readout, (int, float))
+                or not np.isfinite(readout)
+                or not 0 < readout <= min(0.1, 1 / float(rate))
+            ):
+                raise ValueError("invalid image timing capture mode")
+    except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
         raise StitchError(f"Invalid calibration: {exc}") from exc
     return data
 

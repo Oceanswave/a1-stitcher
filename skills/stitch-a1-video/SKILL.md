@@ -105,7 +105,7 @@ Review moving seams, flare and blade blur before accepting the profile.
 
 For image-based timing, use `sync-calibrate` with the base nominal/exposure
 calibration and gyro profile. Inspect its JSON status: rejection produces evidence
-but no usable profile. Schema 3 preserves the fitted gyro fingerprint, anchor
+but no usable profile. Schema 3 preserves the fitted capture mode, gyro fingerprint, anchor
 spacing and trajectory row model. A successful local holdout is not transfer
 qualification. Keep unsuccessful experiments out of defaults.
 

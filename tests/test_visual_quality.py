@@ -182,6 +182,7 @@ def test_refitted_calibration_enforces_gyro_and_readout_dependencies(
             gyro_profile_fingerprint=fingerprint(sensor),
             base_calibration_fingerprint=base,
             gyro_anchor_seconds=0.1,
+            capture_mode=dict(fps="10", readout_seconds=0.02),
         ),
     )
     path = tmp_path / "image-clock.json"
@@ -197,6 +198,9 @@ def test_refitted_calibration_enforces_gyro_and_readout_dependencies(
         frames=3,
         backend="cpu",
     )
+    from a1_stitcher import render
+
+    monkeypatch.setattr(render, "sensor_readout", lambda *a: 0.02)
     with pytest.raises(StitchError, match="requires its gyro"):
         plan(Options(**config))
     gyro_path = tmp_path / "gyro.json"
@@ -210,6 +214,10 @@ def test_refitted_calibration_enforces_gyro_and_readout_dependencies(
     assert recipe["rolling_shutter"]["readout_seconds"] == pytest.approx(0.018)
     with pytest.raises(StitchError, match="different gyro"):
         plan(Options(**config, gyro_anchor_seconds=0.2))
+    monkeypatch.setattr(render, "sensor_readout", lambda *a: 0.018)
+    with pytest.raises(StitchError, match="different frame-rate/readout"):
+        plan(Options(**config))
+    monkeypatch.setattr(render, "sensor_readout", lambda *a: 0.02)
     sensor["synthetic"] = False
     with pytest.raises(StitchError, match="different gyro"):
         plan(Options(**config))
@@ -237,6 +245,7 @@ def test_invalid_visual_schema_rejected(synthetic_camera, field, value):
             gyro_profile_fingerprint="a" * 64,
             base_calibration_fingerprint="b" * 64,
             gyro_anchor_seconds=0.1,
+            capture_mode=dict(fps="10", readout_seconds=0.02),
         ),
     )
     profile["visual_sync"][field] = value

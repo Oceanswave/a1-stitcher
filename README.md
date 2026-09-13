@@ -27,6 +27,9 @@ Masks replace excluded housing/propeller pixels only where the other lens sees
 the scene. Multi-frame detection now proposes fixed obstructions for review; it
 does not identify every blade. Reviewed proposals also check the alternate image
 for clipping and low contrast before forced replacement.
+In matched 20-second gyro controls, the image timing fit lowered the motion
+diagnostic by about 36% on its ridge interval and 28% on a separate forest recording.
+Studio remained smoother; local geometry and native-resolution quality are separate gates.
 See [the 0.8 evidence and limits](docs/quality-v0.8.md). Severe occlusion and
 broader camera coverage remain open.
 This is an independent implementation, not an official Antigravity or Insta360
@@ -380,7 +383,7 @@ It uses native-image feature tracks, four contiguous temporal blocks, robust
 fitting and observability/boundary checks. A rejected fit writes evidence and
 returns JSON `status: rejected`, with **no calibration output**. Exit zero means
 the analysis completed; automation must inspect status. A qualifying schema-3
-profile requires the same gyro-profile fingerprint and anchor spacing, plus
+profile requires the same frame-rate/readout mode, gyro-profile fingerprint and anchor spacing, plus
 `--rolling-shutter-model trajectory`. It preserves the base nominal or exposure
 clock. Do not manually relabel a schema-1/2 calibration or discard these dependencies.
 Validate a separate recording before treating a local fit as transferable.

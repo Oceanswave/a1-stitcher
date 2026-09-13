@@ -148,6 +148,10 @@ def plan(options):
     readout = sensor_readout(metadata, float(fps), options.rolling_shutter)
     visual_sync = calibration.get("visual_sync") if calibration["schema_version"] == 3 else None
     if visual_sync:
+        if visual_sync["capture_mode"] != dict(fps=str(fps), readout_seconds=readout):
+            raise StitchError(
+                "Image timing calibration belongs to a different frame-rate/readout mode"
+            )
         if (
             not options.gyro_profile
             or options.rolling_shutter != "auto"

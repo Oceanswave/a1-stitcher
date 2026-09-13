@@ -213,7 +213,7 @@ unsupported. The video does not retain the raw trailer or sensor streams.
 
 Calibration schema 3 preserves an explicit `nominal` or `exposure-midpoint-v1`
 clock and adds `visual_sync.kind: a1-image-row-sync-v1`, a readout multiplier,
-the base calibration fingerprint, the fitted gyro-profile fingerprint and anchor
+the capture frame rate/readout, base calibration fingerprint, fitted gyro-profile fingerprint and anchor
 spacing. Its time shift includes the measured image adjustment. Render preflight
 requires the corresponding gyro profile and trajectory row model; older versions
 reject the schema rather than silently discarding its readout correction.
