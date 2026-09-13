@@ -1,13 +1,13 @@
 ---
 name: stitch-a1-video
-description: Prepare Antigravity A1 INSV originals as stabilized 360 spheres with the a1-stitch CLI, including native-resolution 8K, 10-bit HEVC or ProRes, Metal acceleration, gyro calibration and GPX flight tracks. Use for A1 ingest, source-matched quality comparisons and repeatable batch preparation; retain the user's chosen editor for creative finishing.
+description: Prepare Antigravity A1 INSV originals as stabilized 360 spheres with the a1-stitch CLI, including 8K/10-bit output, Metal acceleration, image/gyro synchronization, reviewed obstruction proposals, multiscale seams and GPX tracks. Use for A1 ingest, source-matched quality comparisons and repeatable batch preparation; retain the user's chosen editor for creative finishing.
 ---
 
 # Prepare A1 footage
 
 Use `a1-stitch` for original-source preparation. JSON goes to stdout and
 progress/errors to stderr. It produces full spheres, GPS sidecars and receipts;
-it does not assemble a finished film. **This skill describes the 0.7 command set.**
+it does not assemble a finished film. **This skill describes the 0.8 command set.**
 Check `a1-stitch --version` and `a1-stitch stitch --help` before using new flags;
 an older installed CLI must be updated from the public repository or a checked
 local build. Never silently substitute another application named Antigravity.
@@ -103,6 +103,24 @@ when both lenses are blocked; they do not detect every blade or invent hidden
 surfaces. Tight measured outlines preserve more overlap than broad cutoffs.
 Review moving seams, flare and blade blur before accepting the profile.
 
+For image-based timing, use `sync-calibrate` with the base nominal/exposure
+calibration and gyro profile. Inspect its JSON status: rejection produces evidence
+but no usable profile. Schema 3 preserves the fitted capture mode, gyro fingerprint, anchor
+spacing and trajectory row model. A successful local holdout is not transfer
+qualification. Keep unsuccessful experiments out of defaults.
+
+`mask-propose` generates native overlay sheets and a schema-2 proposal from
+multiple frames. Inspect/refine the exclusions, then use `mask-approve` with
+actual review notes. Empty or unreviewed proposals cannot render. Do not approve
+image rims, static scene objects or unsupported guesses about blades. Forced
+replacement checks alternate clipping/contrast and fails when neither view is
+usable. This remains incomplete object detection, not reconstruction.
+
+`--seam multiband` is an opt-in three-band overlap blend with bounded gain changes;
+it retains native high-frequency detail and does not average pixels over time.
+Compare it on moving seams before selecting it. Detailed bounds and examples are
+in [the new quality tools](references/options.md#image-timing-masks-and-continuous-comparisons).
+
 ## Flight profiles and repeated jobs
 
 `a1-stitch gpx SOURCE.insv --output NEW_FLIGHT.gpx` needs no calibration or FFmpeg.
@@ -121,7 +139,9 @@ For a stale lock, establish that its owner is gone before removing it.
 
 ## Review and hand off
 
-Compare mapped moments with Studio using `a1-stitch compare`. Per-frame global
+Use `a1-stitch benchmark` for contiguous 20–30-second Studio comparisons with
+six fixed views and one initial alignment. Automated all-frame coverage is not
+human playback acceptance. Use `a1-stitch compare` for sampled geometric detail. Per-frame global
 alignment exposes stitching differences but can hide horizon shake; inspect
 original orientation and moving reframes too. Read source lenses before assuming
 a dark region is a propeller or a geometry problem.

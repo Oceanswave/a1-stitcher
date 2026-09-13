@@ -45,3 +45,12 @@ authored. Read-only inspection of Studio timing/visibility interfaces and metada
 field-number constants informed format hypotheses. The implementation does not
 load vendor libraries, copy vendor algorithms or distribute per-camera masks.
 See docs/quality-v0.7.md for observations, official guide links and measured limits.
+
+The 0.8 image-to-trajectory timing fitter, camera-fixed obstruction proposals,
+continuous comparison tool and three-band overlap blend are independently authored.
+Public references considered for the problem and terminology:
+https://github.com/gyroflow/rs-sync (LGPL-2.1; no code or dependency copied)
+https://docs.opencv.org/4.13.0/d5/d4b/classcv_1_1detail_1_1MultiBandBlender.html
+No rs-sync implementation, Studio code, vendor masks or model weights are bundled.
+The multiband mode uses an independent bounded-belt frequency decomposition, not
+OpenCV's whole-panorama MultiBandBlender class.

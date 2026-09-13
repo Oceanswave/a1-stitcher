@@ -97,7 +97,7 @@ def plan(options):
             raise StitchError(f"{name} must be boolean")
     if not isinstance(options.export_gpx, bool):
         raise StitchError("export_gpx must be boolean")
-    if options.seam not in ["flow", "adaptive", "feather"]:
+    if options.seam not in ["flow", "adaptive", "multiband", "feather"]:
         raise StitchError("Seam must be flow, adaptive or feather")
     if options.backend not in ["auto", "cpu", "metal"]:
         raise StitchError("Backend must be auto, cpu or metal")
@@ -146,6 +146,28 @@ def plan(options):
     times, recorded_poses = orientation37(reader)
     fps = Fraction(profile["fps"])
     readout = sensor_readout(metadata, float(fps), options.rolling_shutter)
+    visual_sync = calibration.get("visual_sync") if calibration["schema_version"] == 3 else None
+    if visual_sync:
+        mode = visual_sync["capture_mode"]
+        # Embedded readout is measured, not an exact mode enum: same-mode real
+        # recordings differ slightly. Admit <=1% variation, not a new scan mode.
+        if mode["fps"] != str(fps) or not np.isclose(
+            readout, mode["readout_seconds"], rtol=0.01, atol=1e-6
+        ):
+            raise StitchError(
+                "Image timing calibration belongs to a different frame-rate/readout mode"
+            )
+        if (
+            not options.gyro_profile
+            or options.rolling_shutter != "auto"
+            or options.rolling_shutter_model != "trajectory"
+        ):
+            raise StitchError(
+                "Image timing calibration requires its gyro profile and trajectory rolling shutter"
+            )
+        readout *= visual_sync["readout_scale"]
+        if readout > min(0.1, 1 / float(fps)):
+            raise StitchError("Refined readout exceeds the frame period")
     exposure_clock = None
     if calibration.get("frame_clock") == "exposure-midpoint-v1":
         from .exposure import ExposureClock
@@ -191,6 +213,13 @@ def plan(options):
         from .gyro import trajectory
 
         motion, gyro = trajectory(reader, options.gyro_profile, options.gyro_anchor_seconds)
+        if visual_sync and (
+            fingerprint(gyro) != visual_sync["gyro_profile_fingerprint"]
+            or options.gyro_anchor_seconds != visual_sync["gyro_anchor_seconds"]
+        ):
+            raise StitchError(
+                "Image timing calibration was fitted with a different gyro profile or anchor interval"
+            )
         heading_pose = motion(np.array([begin - readout / 2, end + readout / 2, heading_time]))[-1]
     world_orientation(heading_pose)
     ffmpeg = binary("ffmpeg")
@@ -222,7 +251,9 @@ def plan(options):
         calibration=calibration,
         settings=settings,
         profile=profile,
-        seam="periodic-adaptive-flow-local-balance-v3"
+        seam="three-band-flow-local-balance-v1"
+        if options.seam == "multiband"
+        else "periodic-adaptive-flow-local-balance-v3"
         if options.seam == "adaptive"
         else "bidirectional-flow-local-balance-v3"
         if options.seam == "flow"
@@ -532,7 +563,7 @@ def stitch(options, progress=None, dry_run=False):
                     if readout
                     else "Per-row rolling-shutter correction disabled or metadata absent",
                     "Confidence-gated local flow cannot reconstruct occluded detail"
-                    if options.seam in ["flow", "adaptive"]
+                    if options.seam in ["flow", "adaptive", "multiband"]
                     else "Angular feather seams; no optical-flow parallax correction",
                     "Camera-bound visibility masks use the other real lens; cannot reconstruct detail blocked in both lenses"
                     if options.occlusion_profile

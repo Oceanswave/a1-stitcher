@@ -302,13 +302,20 @@ class TiledStitcher:
             from .occlusion import VisibilityMasks
 
             self.visibility = VisibilityMasks(occlusion, lenses)
-        if seam not in ["feather", "flow", "adaptive"]:
+        if seam not in ["feather", "flow", "adaptive", "multiband"]:
             raise StitchError("Seam must be flow, adaptive or feather")
         self.seam = None
-        if seam in ["flow", "adaptive"]:
+        if seam in ["flow", "adaptive", "multiband"]:
             from .seam import OverlapSeam
 
-            self.seam = OverlapSeam(lenses, self.relative, width, fps, adaptive=seam == "adaptive")
+            self.seam = OverlapSeam(
+                lenses,
+                self.relative,
+                width,
+                fps,
+                adaptive=seam == "adaptive",
+                multiband=seam == "multiband",
+            )
         longitude = ((np.arange(width, dtype=np.float32) + 0.5) / width - 0.5) * (2 * np.pi)
         self.sinlon, self.coslon = np.sin(longitude), np.cos(longitude)
 
@@ -330,6 +337,8 @@ class TiledStitcher:
         from .motion import validate_rows
 
         rows = validate_rows(row_quaternions)
+        if self.visibility is not None:
+            self.visibility.prepare(frames)
         if self.seam is not None:
             self.seam.prepare(frames, angular_velocity, self.readout_seconds, rows, self.visibility)
         output = np.empty((self.height, self.width, 3), dtype)
@@ -373,7 +382,10 @@ class TiledStitcher:
                         else (alpha if i == 0 else 1 - alpha)
                     )
                     eligibility.append(valid * self.visibility.sample(i, u, v))
-                weights = visible_weights(np.array(preferred), np.array(eligibility))
+                quality = np.array(
+                    [self.visibility.sample_quality(i, u, v) for i, (u, v) in enumerate(maps)]
+                )
+                weights = visible_weights(np.array(preferred), np.array(eligibility), quality)
                 for i, (u, v) in enumerate(maps):
                     warped = sample_pixels(frames[i], u, v).reshape(*shape, 3)
                     if self.seam is not None:
@@ -384,9 +396,10 @@ class TiledStitcher:
                     raise StitchError(
                         "Visibility masks leave pixels unavailable in both lenses; no detail was invented"
                     )
-                output[top:bottom] = np.rint(np.clip(result / total[..., None], 0, maximum)).astype(
-                    dtype
-                )
+                result /= total[..., None]
+                if self.seam is not None and self.seam.multiband:
+                    result += maximum * self.seam.multiband_correction(rays)
+                output[top:bottom] = np.rint(np.clip(result, 0, maximum)).astype(dtype)
                 continue
             for i, lens in enumerate(self.lenses):
                 basis = rays if self.seam is None else corrected[i]
@@ -420,6 +433,8 @@ class TiledStitcher:
             covered = total > 1e-5
             missing += int((~covered).sum())
             result /= np.maximum(total[:, :, None], 1e-5)
+            if self.seam is not None and self.seam.multiband:
+                result += maximum * self.seam.multiband_correction(rays)
             result = np.clip(result, 0, maximum)
             output[top:bottom] = (np.rint(result) if dtype == np.uint16 else result).astype(dtype)
         return output, missing / (self.width * self.height)

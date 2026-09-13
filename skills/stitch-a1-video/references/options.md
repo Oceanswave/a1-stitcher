@@ -1,6 +1,6 @@
 # A1 CLI options and preparation handoff
 
-The 0.7 CLI command line and JSON batch jobs share `Options` fields. Check installed
+The 0.8 CLI command line and JSON batch jobs share `Options` fields. Check installed
 help/version before using this reference. No vendor runtime is required after
 calibration; Metal needs macOS, a usable GPU and Swift command line tools.
 
@@ -21,6 +21,7 @@ paths resolve against the manifest directory. Outputs and receipts never overwri
 | `--backend cpu` | — | Portable CPU reference renderer. |
 | `--backend metal` | — | Require the independent Metal renderer; fail if unavailable. |
 | `--seam flow` | `flow` | Bidirectional correspondence checks and bounded local color balance. |
+| `--seam multiband` | — | Experimental three-band overlap blend and bounded per-frame color changes; no temporal pixel averaging. |
 | `--seam adaptive` | — | Experimental moving overlap path with temporal constraints. |
 | `--seam feather` | — | Legacy angular feather for comparisons or unsuitable flow. |
 | `--rolling-shutter auto` | `auto` | Use embedded readout duration and native sensor-row timing. |
@@ -254,3 +255,56 @@ A profile can still produce parallax, flare or a visible seam. This is authored
 visibility exclusion, not automatic rotating-blade detection, learned inpainting,
 shadow removal or a complete Studio equivalent. Keep it opt-in and review the
 whole intended interval before accepting a production master.
+
+## Image timing, masks and continuous comparisons
+
+| Command | Required arguments | Optional settings / limits |
+| --- | --- | --- |
+| `sync-calibrate SOURCE` | `--calibration BASE --gyro-profile GYRO --first-frame N --frames N --output NEW --evidence-dir NEW_DIR` | `--step 3` (1–10); `--gyro-anchor-seconds 0.1` (0.02–1); 60–1800 frames. Base schema 1 or 2 only. |
+| `mask-propose SOURCE` | `--calibration PROFILE --first-frame N --frames N --output NEW --evidence-dir NEW_DIR` | `--samples 24` (12–60); 60–1800 frames; native analysis at 512 pixels. |
+| `mask-approve PROPOSAL` | `--output NEW --review-notes TEXT` | 8–4000 characters documenting actual review; nonempty schema-2 proposal only. |
+| `benchmark CANDIDATE` | `--reference SPHERE --reference-first-frame N --frames N --output-dir NEW_DIR` | `--width 1024` (512–2048, multiple of four); 2–1800 frames; identical known CFR; six 256-pixel fixed 90° views. |
+
+All outputs are new paths. The benchmark offset maps candidate frame zero into
+the reference; it is not the original's absolute source frame. The two frame
+mappings must be reconciled explicitly. Native-lens downsampling and small review
+spheres do not establish native-resolution quality. Benchmark angular acceleration
+is in degrees per frame squared, not degrees per second squared. Scene motion,
+translation/parallax and changing light affect its metrics; unmeasured pairs are
+reported and never interpolated. No per-frame alignment hides candidate motion.
+
+Timing uses 768-pixel native feature tracks, bidirectional checks, robust background
+rotation filtering and four contiguous temporal blocks. The search spans ±40 ms
+and 0.5–1.5× native readout. A qualifying fit must improve held-out median angular
+error by at least 1%, keep its p95 within 1% of baseline, avoid search boundaries
+and pass a scaled Jacobian observability check. These gates are interval checks,
+not an independent-camera or separate-recording qualification.
+
+A rejected timing analysis returns exit 0 with JSON `status: rejected` and writes
+only evidence. Check status before attempting a render. A schema-3 calibration
+records capture mode, readout scale, base-profile fingerprint, gyro fingerprint and anchor
+spacing. Rendering requires that gyro profile/spacing, `--rolling-shutter auto`
+and `--rolling-shutter-model trajectory`; incompatible combinations fail preflight.
+The base nominal/exposure clock remains explicit. Older CLIs reject schema 3.
+
+A proposal is not a verified aircraft mask. Inspect both native lenses over the
+range, trim scene/rim false positives, and record coverage in `mask-approve` notes.
+The proposal includes sampled frames and source/calibration identity. Approved
+schema-2 visibility profiles add a temporally damped contrast check and immediate
+clipping rejection for forced alternate-lens replacement. Low-texture sky can
+therefore make replacement unavailable. This is deliberate abstention, not an
+invitation to loosen an exclusion until the job passes. Legacy authored schema-1
+masks keep their earlier behavior. `mask-preview` can inspect empty templates and
+unapproved proposals without allowing them to render.
+
+Multiband uses the existing calibrated, confidence-checked overlap. It adds two
+bounded low-frequency difference terms with 2.4°/4.8° transitions while native
+high-frequency detail keeps the 1.2° transition. The analysis belt remains ±8°;
+unsupported/clipped/masked regions do not receive a correction. Per-frame log-gain
+updates are limited to 0.01 in this mode. Default `flow` behavior is retained.
+
+Image timing capture-mode checks require the same exact frame rate and allow
+up to 1% readout variation (plus 1 µs numerical tolerance), because embedded
+readout measurements differ slightly between same-mode recordings. Larger scan
+changes require a new fit. The multiplier still applies to each source
+recording's own readout measurement.

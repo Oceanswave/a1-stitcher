@@ -52,7 +52,8 @@ checks cover:
 - Process deadlines, early EOF, stalled encoders, cleanup, output locks, no-clobber
   writes, receipt rollback, checksum-based reuse and batch path handling.
 
-CI runs on macOS and Linux, with Python 3.12 and Linux Python 3.13. The CI result
+CI runs Python 3.12 and 3.13 on the self-hosted Rockybot Linux runner. Actual
+macOS Metal parity is tested locally and reported separately. The CI result
 for an exact commit is the authority for that commit; a workflow definition alone
 is not evidence that those runners passed. The installed wheel is checked outside
 the checkout so an editable source import cannot hide packaging mistakes.
@@ -68,7 +69,7 @@ midpoints and camera-bound visibility masks are available as experimental
 options. None establishes high-frequency image timing or full aircraft-removal
 parity. Visibility masks can select actual alternate-lens pixels but cannot
 reconstruct doubly occluded detail. Adaptive seams remain a separate option.
-See the [0.7 evidence](quality-v0.7.md) and the linked earlier measurements.
+See the [0.8 evidence](quality-v0.8.md) and the linked earlier measurements.
 
 The original prototype output path was 8-bit SDR BT.709. Current 16-bit processing and 10-bit output
 reduce new rounding; they do not establish log/HDR support. I-Log/D-Log, HDR, audio preservation, other camera models, and broad hardware/firmware
@@ -79,3 +80,14 @@ new model's color science.
 The output mask can prove coverage but cannot prove invisible seams. A complete
 decode cannot prove compelling editing. Preserve those distinctions in bug reports,
 agent skills and downstream media libraries.
+
+
+The `benchmark` command now records every frame of a contiguous range with six
+fixed perspective views and one initial alignment. Its tracking coverage and
+separate motion/brightness diagnostics supplement, rather than replace, native
+seam and whole-motion review. `sync-calibrate` uses temporal holdouts and rejects
+unobservable, boundary or unhelpful fits. Synthetic recovery of timing/readout is
+a numerical gate; an accepted real interval still needs separate transfer review.
+Mask proposals require native-image review and can miss blades or mistake static
+edges. Empty templates can be previewed but cannot be rendered. New multiband and
+quality-mask paths run through both CPU and real Metal parity tests.

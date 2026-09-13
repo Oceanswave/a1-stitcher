@@ -105,6 +105,10 @@ kernel void stitch(const device uchar* first [[buffer(0)]],const device uchar* s
     }
     if(maskSize>0 && weights[0]+weights[1]<=1e-5f) {
         weights[0]=eligible[0];weights[1]=eligible[1];
+        if(p[53]>0)for(int i=0;i<2;i++)if(weights[i]>0) {
+            float2 xy=clamp(coordinates[i]/(p[40+i*11]-1)*(maskSize-1),0.0f,float(maskSize-1));
+            weights[i]*=field(rows,maskBase+(2+i)*maskSize*maskSize,maskSize,maskSize,1,0,xy.x,xy.y);
+        }
     }
     for(int i=0;i<2;i++) {
         float weight=weights[i];if(weight<=0)continue;
@@ -113,7 +117,12 @@ kernel void stitch(const device uchar* first [[buffer(0)]],const device uchar* s
         sum+=warped*weight;total+=weight;
     }
     if(total<=1e-5f)atomic_fetch_add_explicit(missing,1,memory_order_relaxed);
-    sum=clamp(sum/max(total,1e-5f),0.0f,high?65535.0f:255.0f);
+    sum/=max(total,1e-5f);
+    if(flow && p[52]>0 && abs(latitude)<PI*8/180) {
+        int base=area*6+sw*3+max(int(p[5]),1);
+        for(int c=0;c<3;c++)sum[c]+=(high?65535.0f:255.0f)*field(a,base,sw,sh,3,c,fx,fy);
+    }
+    sum=clamp(sum,0.0f,high?65535.0f:255.0f);
     int n=(pos.y*width+pos.x)*3;
     if(high){device ushort* out=(device ushort*)output;for(int c=0;c<3;c++)out[n+c]=ushort(rint(sum[c]));}
     else for(int c=0;c<3;c++)output[n+c]=uchar(maskSize>0?rint(sum[c]):sum[c]);

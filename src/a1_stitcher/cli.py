@@ -88,6 +88,44 @@ def parser():
     gyro.add_argument("source")
     gyro.add_argument("--validation-source", required=True)
     gyro.add_argument("--output", required=True)
+    sync = sub.add_parser(
+        "sync-calibrate", help="Fit image/gyro timing and native-row readout with temporal holdouts"
+    )
+    sync.add_argument("source")
+    sync.add_argument("--calibration", required=True)
+    sync.add_argument("--gyro-profile", required=True)
+    sync.add_argument("--first-frame", required=True, type=int)
+    sync.add_argument("--frames", required=True, type=int)
+    sync.add_argument("--step", type=int, default=3)
+    sync.add_argument("--gyro-anchor-seconds", type=float, default=0.1)
+    sync.add_argument("--output", required=True)
+    sync.add_argument("--evidence-dir", required=True)
+    proposal = sub.add_parser(
+        "mask-propose",
+        help="Find persistent native obstructions; create a proposal requiring review",
+    )
+    proposal.add_argument("source")
+    proposal.add_argument("--calibration", required=True)
+    proposal.add_argument("--first-frame", required=True, type=int)
+    proposal.add_argument("--frames", required=True, type=int)
+    proposal.add_argument("--samples", default=24, type=int)
+    proposal.add_argument("--output", required=True)
+    proposal.add_argument("--evidence-dir", required=True)
+    approval = sub.add_parser(
+        "mask-approve", help="Activate a reviewed native obstruction proposal"
+    )
+    approval.add_argument("input")
+    approval.add_argument("--output", required=True)
+    approval.add_argument("--review-notes", required=True)
+    bench = sub.add_parser(
+        "benchmark", help="Compare every frame of a contiguous interval with six fixed views"
+    )
+    bench.add_argument("candidate")
+    bench.add_argument("--reference", required=True)
+    bench.add_argument("--reference-first-frame", required=True, type=int)
+    bench.add_argument("--frames", required=True, type=int)
+    bench.add_argument("--width", default=1024, type=int)
+    bench.add_argument("--output-dir", required=True)
     cal = sub.add_parser(
         "calibrate", help="Fit unit-specific geometry and attitude against a stitched reference"
     )
@@ -184,7 +222,7 @@ def parser():
     )
     stitch.add_argument(
         "--seam",
-        choices=["flow", "adaptive", "feather"],
+        choices=["flow", "adaptive", "multiband", "feather"],
         default="flow",
         help="Fixed flow (default), experimental adaptive seam, or legacy feather blending",
     )
@@ -225,6 +263,47 @@ def main(argv=None):
     try:
         if args.command == "doctor":
             result = doctor()
+        elif args.command == "sync-calibrate":
+            from .visual_sync import calibrate
+
+            result = calibrate(
+                args.source,
+                args.calibration,
+                args.gyro_profile,
+                args.first_frame,
+                args.frames,
+                args.output,
+                args.evidence_dir,
+                args.step,
+                args.gyro_anchor_seconds,
+            )
+        elif args.command == "mask-propose":
+            from .mask_proposal import propose
+
+            result = propose(
+                args.source,
+                args.calibration,
+                args.first_frame,
+                args.frames,
+                args.samples,
+                args.output,
+                args.evidence_dir,
+            )
+        elif args.command == "mask-approve":
+            from .mask_proposal import approve
+
+            result = approve(args.input, args.output, args.review_notes)
+        elif args.command == "benchmark":
+            from .benchmark import benchmark
+
+            result = benchmark(
+                args.candidate,
+                args.reference,
+                args.reference_first_frame,
+                args.frames,
+                args.output_dir,
+                args.width,
+            )
         elif args.command == "gyro-calibrate":
             from .gyro import calibrate
 

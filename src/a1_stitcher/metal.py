@@ -110,7 +110,7 @@ class MetalStitcher(TiledStitcher):
         from .motion import validate_rows
 
         rows = validate_rows(row_quaternions)
-        p = np.zeros(52, np.float32)
+        p = np.zeros(54, np.float32)
         p[6] = 0 if rows is None else rows.shape[1]
         p[:3] = self.width, frames[0].dtype == np.uint16, self.seam is not None
         p[8:17] = rotation.ravel()
@@ -140,10 +140,17 @@ class MetalStitcher(TiledStitcher):
             analysis = np.concatenate(
                 [v.ravel() for v in [*s.flows, *s.confidence, ratio, path]]
             ).astype(np.float32)
+            if s.multiband:
+                p[52] = 1
+                analysis = np.concatenate([analysis, s.correction.ravel()])
         extras = np.empty(0, np.float32) if rows is None else rows.ravel()
         if self.visibility is not None:
+            self.visibility.prepare(frames)
             p[7] = self.visibility.maps[0].shape[0]
             extras = np.concatenate([extras, *[m.ravel() for m in self.visibility.maps]])
+            if self.visibility.quality is not None:
+                p[53] = 1
+                extras = np.concatenate([extras, *[m.ravel() for m in self.visibility.quality]])
         if not extras.size:
             extras = np.zeros(1, np.float32)
         arrays = [np.ascontiguousarray(f) for f in frames] + [p, analysis, extras]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from fractions import Fraction
 
 import numpy as np
 from scipy.optimize import least_squares
@@ -36,8 +37,12 @@ def rotation_matrix(value, name):
 
 
 def validate_calibration(data, metadata=None):
-    if not isinstance(data, dict) or data.get("schema_version") not in (1, 2):
-        raise StitchError("Unsupported calibration schema; expected schema_version 1 or 2")
+    if (
+        not isinstance(data, dict)
+        or type(data.get("schema_version")) is not int
+        or data.get("schema_version") not in (1, 2, 3)
+    ):
+        raise StitchError("Unsupported calibration schema; expected schema_version 1, 2 or 3")
     if (data["schema_version"] == 2 and data.get("frame_clock") != "exposure-midpoint-v1") or (
         data["schema_version"] == 1 and data.get("frame_clock", "nominal") != "nominal"
     ):
@@ -64,7 +69,42 @@ def validate_calibration(data, metadata=None):
             raise ValueError("only the measured non-inverse A1 attitude convention is supported")
         if metadata is not None and lens_fingerprint(metadata) != fingerprint:
             raise ValueError("calibration belongs to different embedded lens parameters")
-    except (KeyError, TypeError, ValueError) as exc:
+        if data["schema_version"] == 3:
+            sync = data["visual_sync"]
+            if (
+                data.get("frame_clock") not in ["nominal", "exposure-midpoint-v1"]
+                or sync.get("kind") != "a1-image-row-sync-v1"
+            ):
+                raise ValueError("invalid image timing clock or model")
+            for key in ["gyro_profile_fingerprint", "base_calibration_fingerprint"]:
+                value = sync[key]
+                if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+                    raise ValueError("invalid timing dependency fingerprint")
+            for key, lower, upper in [
+                ("readout_scale", 0.5, 1.5),
+                ("gyro_anchor_seconds", 0.02, 1),
+            ]:
+                value = sync[key]
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not np.isfinite(value)
+                    or not lower <= value <= upper
+                ):
+                    raise ValueError(f"invalid image timing {key}")
+            mode = sync["capture_mode"]
+            rate = Fraction(mode["fps"])
+            readout = mode["readout_seconds"]
+            if (
+                not isinstance(mode["fps"], str)
+                or not 0 < rate <= 120
+                or isinstance(readout, bool)
+                or not isinstance(readout, (int, float))
+                or not np.isfinite(readout)
+                or not 0 < readout <= min(0.1, 1 / float(rate))
+            ):
+                raise ValueError("invalid image timing capture mode")
+    except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
         raise StitchError(f"Invalid calibration: {exc}") from exc
     return data
 
@@ -75,7 +115,7 @@ def load_calibration(path, metadata=None):
 
 def migrate_legacy(data):
     """Explicit migration of the initial local prototype's calibration document."""
-    if data.get("frame_clock", "nominal") != "nominal" or data.get("schema_version", 1) == 2:
+    if data.get("frame_clock", "nominal") != "nominal" or data.get("schema_version", 1) in (2, 3):
         raise StitchError("Cannot migrate an exposure calibration to the legacy nominal clock")
     names = [
         "camera_type",
