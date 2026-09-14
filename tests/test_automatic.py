@@ -11,7 +11,7 @@ from a1_stitcher.automatic import fit_overlap
 from a1_stitcher.calibration import validate_calibration
 from a1_stitcher.errors import StitchError
 from a1_stitcher.media import verify
-from a1_stitcher.render import plan, stitch
+from a1_stitcher.render import PreparedAlignment, plan, stitch
 from a1_stitcher.storage import digest
 
 
@@ -27,6 +27,69 @@ def mock_fits(monkeypatch, angles):
         )
 
     monkeypatch.setattr("a1_stitcher.automatic.match_lenses", match)
+
+
+@pytest.mark.integration
+def test_batch_fits_each_job_once_and_does_not_keep_preparation_files(
+    synthetic_camera, tmp_path, monkeypatch, capsys
+):
+    from dataclasses import asdict
+
+    from a1_stitcher.cli import main
+
+    calls = []
+
+    def fit(*args):
+        calls.append(1)
+        return Rotation.from_euler("y", 180, degrees=True).as_matrix(), dict(
+            inliers=70, valid=80, p95_error_degrees=0.4
+        )
+
+    monkeypatch.setattr("a1_stitcher.automatic.match_lenses", fit)
+    output = tmp_path / "result" / "sphere.mp4"
+    cfg = replace(options(synthetic_camera, output), calibration=None, backend="cpu")
+    manifest = tmp_path / "batch.json"
+    manifest.write_text(json.dumps(dict(schema_version=1, jobs=[asdict(cfg)])))
+    assert main(["batch", str(manifest)]) == 0
+    assert len(calls) == 3  # three original overlap samples, not six
+    result = json.loads(capsys.readouterr().out)["jobs"][0]
+    assert result["verification"]["full_decode"]
+    assert sorted(p.name for p in output.parent.iterdir()) == [
+        "sphere.mp4",
+        "sphere.mp4.receipt.json",
+        "sphere.mp4.view.html",
+        "sphere.mp4.viewport.json",
+    ]
+
+
+@pytest.mark.integration
+def test_prepared_alignment_rejects_changed_source_settings_or_fit(
+    synthetic_camera, tmp_path, monkeypatch
+):
+    from shutil import copyfile
+
+    source = tmp_path / "copy.insv"
+    copyfile(synthetic_camera["source"], source)
+    cfg = replace(
+        options(synthetic_camera, tmp_path / "new" / "sphere.mp4"),
+        source=str(source),
+        calibration=None,
+        backend="cpu",
+    )
+    mock_fits(monkeypatch, [180, 180, 180])
+    prepared = PreparedAlignment.from_plan(cfg, plan(cfg))
+    for altered in [replace(cfg, first_frame=1), replace(cfg, view="fixed")]:
+        with pytest.raises(StitchError, match="after batch preflight"):
+            stitch(altered, prepared_alignment=prepared)
+    prepared.calibration["quality_status"] = "changed"
+    with pytest.raises(StitchError, match="after batch preflight"):
+        stitch(cfg, prepared_alignment=prepared)
+    mock_fits(monkeypatch, [180, 180, 180])
+    prepared = PreparedAlignment.from_plan(cfg, plan(cfg))
+    source.write_bytes(source.read_bytes() + b"changed")
+    with pytest.raises(StitchError, match="after batch preflight"):
+        stitch(cfg, prepared_alignment=prepared)
+    assert not Path(cfg.output).parent.exists()
 
 
 def test_consensus_rejects_moving_outlier_without_averaging(monkeypatch):

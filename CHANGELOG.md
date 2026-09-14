@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Report A1 recording-mode declarations in inspection and conversion receipts.
+  Reject unqualified retimed/grouped modes, conflicting declarations, declared
+  HDR/higher precision and capture/playback rate mismatches. Add synthetic tests
+  for standard-mode H.264/H.265 resolution/rate combinations.
+- Reuse automatic batch alignment in memory with source/settings/integrity checks.
+  Avoid the second three-sample fit without persistent media caching or retaining
+  whole-flight arrays between jobs.
+- Document A1-only priorities, timelapse, DNG/HDR photos, goggles audio and the
+  absence of confirmed A1 Log/HDR video support in the official sources checked.
+
 ## 0.9.0 — 2026-09-12
 
 - Default to pilot-follow companions: presentation-timed quaternion JSON and a
