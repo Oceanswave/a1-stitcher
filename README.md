@@ -28,10 +28,17 @@ Earlier tools remain available: image/gyro synchronization with temporal holdout
 reviewed obstruction proposals, native visibility masks, multiband seams, GPX,
 and source-matched Studio comparisons. Masks use the other real lens where it
 sees the scene; they cannot reconstruct detail blocked in both lenses. Close
-parallax, flare, fast motion, blade blur and broader camera/firmware qualification
+parallax, flare, fast motion, blade blur and broader A1 recording-mode/firmware qualification
 remain open. See [0.9 validation and limits](docs/quality-v0.9.md),
 [0.8 timing evidence](docs/quality-v0.8.md) and
 [measured Metal performance](docs/quality-v0.5.md).
+
+See the [A1 recording-mode coverage](docs/recording-modes.md) and
+[development priorities](docs/roadmap.md). Standard SDR video and JPEG-based INSP
+are the tested paths. Slow motion, timelapse, DNG and grouped HDR/AEB/burst photo
+processing remain incomplete. The development version reports mode declarations
+and rejects unqualified retimed captures before rendering; these checks are
+listed under **Unreleased** in the changelog, not part of the 0.9.0 release.
 
 This is an independent implementation, not an official Antigravity or Insta360 product.
 
@@ -504,9 +511,14 @@ a1-stitch verify selected-sphere.mp4 --receipt selected-sphere.mp4.receipt.json
 ```
 
 Resume is **completed-job reuse**, not continuation of a partially encoded file.
-Source cache identity uses file stat plus first/last MiB hashes; it is not a full
+Source identity uses file stat plus first/last MiB hashes; it is not a full
 cryptographic hash of the original recording. Changed source stat, edge content,
 calibration, media settings, package version or FFmpeg version invalidates reuse.
+
+Development batches reuse the initial overlap alignment in memory and recheck
+each source before rendering. This removes duplicate fitting without creating a
+persistent media cache. Intermediate files are removed unless `--keep-work` was
+explicitly requested; receipts and requested companions stay with the output.
 
 ### Compare with a Studio export
 

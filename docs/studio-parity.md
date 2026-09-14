@@ -17,11 +17,15 @@ model, disassembly or copied implementation is distributed in this package.
 | Propellers / camera / guards | Guard metadata field 175 and fisheye visibility-mask controls; exact automatic removal behavior not established. | Native visibility on CPU/Metal; 0.8 proposes fixed obstructions from multiple frames and checks clipping/contrast for forced alternate-lens replacement after review. | **High** where the aircraft is visible; both-lens occlusion fails; blade detection, flare and parallax remain open. |
 | Exposure blur and occlusion | No qualified independent equivalent from this pass. | Preserves captured blur; cannot recover unseen surfaces. | **High** for difficult scenes. Row correction changes geometry, not exposure sharpness. |
 | Reframing / tracking / creative transitions | Editor controls are distinct from preparing the sphere. | 0.9 defaults to recorded pilot-view JSON and guided player; fixed opt-out keeps the sphere. | **Medium:** ordinary players do not consume the path. Zoom, tracking categories and exact Studio presentation remain unqualified; no complete film is assembled. |
-| Original-only setup | Studio internally reads camera/view records and original lens geometry. | 0.9 uses record-32 camera orientation and checked original overlap without a Studio export or manual profile. | **High:** this mode does not apply raw-sensor row correction or claim FlowState parity; broader camera/mode qualification remains open. |
+| Original-only setup | Studio internally reads camera/view records and original lens geometry. | 0.9 uses record-32 camera orientation and checked original overlap without a Studio export or manual profile. | **High:** this mode does not apply raw-sensor row correction or claim FlowState parity; broader A1 mode qualification remains open. |
 | Still-photo output | Studio provides a separate photo workflow. | 0.9 stitches supported JPEG INSP to native-width RGB16 TIFF with GPano XMP and available ICC. | **Medium:** 8-bit source precision, application-dependent TIFF panorama support; EXIF/GPS remain in the source, DNG unsupported. |
 | Color / HDR / log / audio modes | Broad resources exist in Studio, not proof of A1 support for each mode. | Explicitly tested SDR ingest, 16-bit processing, 10-bit HEVC/ProRes; unsupported inputs rejected. | **High** when an unsupported capture mode is required. |
 
 Exposure synchronization and visibility profiles now have independent implementations.
+The scope remains A1; shared Studio resources are not proof of A1 Log/HDR video
+or audio capture. See [recording-mode coverage](recording-modes.md) for official
+capabilities, real-file evidence and pending work, and [the roadmap](roadmap.md)
+for current priorities.
 These remain opt-in: use the [0.8 evidence](quality-v0.8.md) to separate measured
 improvements from unresolved sensor timing and occlusion. No additional timing
 correction is applied to an existing nominal profile. See also

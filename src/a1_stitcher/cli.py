@@ -431,7 +431,7 @@ def main(argv=None):
             dry_run = values.pop("dry_run")
             result = stitch(Options(**values), progress=progress, dry_run=dry_run)
         elif args.command == "batch":
-            from .render import Options, plan, stitch
+            from .render import Options, PreparedAlignment, plan, stitch
 
             manifest_path = Path(args.manifest).resolve(strict=True)
             manifest = load_json(manifest_path)
@@ -488,11 +488,18 @@ def main(argv=None):
             if outputs & inputs:
                 raise StitchError("Batch outputs collide with inputs")
             # Preflight every job before starting a possibly long batch.
-            for job in jobs:
-                plan(job)
+            alignments = [PreparedAlignment.from_plan(job, plan(job)) for job in jobs]
             result = dict(
                 status="complete",
-                jobs=[stitch(job, progress=progress, dry_run=args.dry_run) for job in jobs],
+                jobs=[
+                    stitch(
+                        job,
+                        progress=progress,
+                        dry_run=args.dry_run,
+                        prepared_alignment=alignment,
+                    )
+                    for job, alignment in zip(jobs, alignments, strict=True)
+                ],
             )
         emit(result)
         return 0

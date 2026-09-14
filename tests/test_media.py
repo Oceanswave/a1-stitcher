@@ -7,6 +7,7 @@ from a1_stitcher.media import source_profile
 def good():
     stream = dict(
         codec_type="video",
+        codec_name="hevc",
         index=0,
         width=128,
         height=128,
@@ -26,6 +27,7 @@ def good():
     "field,value",
     [
         ("pix_fmt", "yuv420p10le"),
+        ("codec_name", "mjpeg"),
         ("color_transfer", "arib-std-b67"),
         ("color_space", "bt2020nc"),
         ("color_range", "tv"),
