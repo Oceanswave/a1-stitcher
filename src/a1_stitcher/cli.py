@@ -75,6 +75,19 @@ def parser():
     inspect.add_argument("source")
     inspect.add_argument("--output")
     inspect.add_argument("--redact-path", action="store_true")
+    preflight = sub.add_parser(
+        "preflight", help="Check camera ingest separately from sphere qualification"
+    )
+    preflight.add_argument("source")
+    preflight.add_argument("--output")
+    preflight.add_argument("--redact-path", action="store_true")
+    audio = sub.add_parser(
+        "extract-audio", help="Export a frame-mapped PCM companion from qualified ingest"
+    )
+    audio.add_argument("source")
+    audio.add_argument("--first-frame", required=True, type=int)
+    audio.add_argument("--frames", required=True, type=int)
+    audio.add_argument("--output", required=True)
     gpx = sub.add_parser("gpx", help="Export the source recording's GPS track as GPX 1.1")
     gpx.add_argument("source")
     gpx.add_argument("--output", required=True)
@@ -367,10 +380,19 @@ def main(argv=None):
                 resume=args.resume,
                 dry_run=args.dry_run,
             )
-        elif args.command == "inspect":
+        elif args.command == "extract-audio":
+            from .audio import extract_audio
+
+            result = extract_audio(args.source, args.output, args.first_frame, args.frames)
+        elif args.command in ("inspect", "preflight"):
             from .insv import InsvReader
 
-            result = InsvReader(args.source).inspect()
+            if args.command == "preflight":
+                from .preflight import preflight
+
+                result = preflight(args.source)
+            else:
+                result = InsvReader(args.source).inspect()
             if args.redact_path:
                 result["source"] = Path(args.source).name
             if args.output:

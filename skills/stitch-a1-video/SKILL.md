@@ -42,7 +42,14 @@ additional rounding; it does not add captured detail or dynamic range. Log/HDR
 inputs are rejected. Do not apply a guessed iLog/D-Log LUT. Output is limited-range
 SDR BT.709; final matching/grading stays in the existing Resolve/Fusion workflow.
 
-Keep the scope **Antigravity A1 only**. Check the repository's
+Keep sphere-export scope **Antigravity A1 only**. Development builds provide
+`preflight` for standard SDR X5 ingest and `extract-audio` for frame-mapped PCM
+companions; read `docs/camera-adapters.md` before using them. Input-contract
+success is not X5 stitching support. X5 sphere export remains blocked pending
+orientation, image timing and native-resolution motion/seam qualification.
+Do not borrow A1 profiles or shift/pad uncovered audio to bypass these gates.
+Keep `a1-stitch` compatibility; broader naming and models remain deferred.
+Check the repository's
 `docs/recording-modes.md` before assuming another A1 mode is supported. Official
 capabilities include slow motion, timelapse, HDR/AEB/burst photos and DNG, but their
 independent processing is not yet qualified. HDR photos and goggles audio do not

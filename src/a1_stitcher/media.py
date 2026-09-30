@@ -4,22 +4,31 @@ from fractions import Fraction
 from pathlib import Path
 
 from .errors import StitchError
-from .modes import require_recording_mode
 from .process import binary, probe, run
 from .storage import digest, load_json
 
 
 def source_profile(path, metadata):
-    info = probe(path)
+    from .cameras import camera_adapter
+
+    adapter = camera_adapter(metadata)
+    adapter.require_sphere_export()
+    return adapter.profile(probe(path), metadata)
+
+
+def input_profile(path, metadata):
+    """Validate ingest without granting permission to render a new camera model."""
+    from .cameras import camera_adapter
+
+    return camera_adapter(metadata).profile(probe(path), metadata)
+
+
+def lens_video_profile(info, metadata, mode):
+    """Shared SDR dual-track contract; camera identity/modes are adapter-owned."""
     streams = info["streams"]
     videos = [s for s in streams if s["codec_type"] == "video"]
-    if metadata.get("camera_type") != "Antigravity A1" or len(videos) != 2:
-        raise StitchError("Expected an Antigravity A1 original with two lens video tracks")
-    mode = require_recording_mode(metadata, "video")
-    if any(s["codec_type"] == "audio" for s in streams):
-        raise StitchError("Audio preservation is not implemented; refusing to silently drop it")
-    if metadata.get("gamma_mode") not in [None, ""]:
-        raise StitchError("Explicit camera gamma mode has not been qualified")
+    if len(videos) != 2:
+        raise StitchError("Expected an original with two lens video tracks in one file")
     counts = []
     rates = []
     dimensions = []
@@ -27,7 +36,7 @@ def source_profile(path, metadata):
     try:
         for video in videos:
             if video.get("codec_name") not in ["h264", "hevc"]:
-                raise StitchError("Expected A1 H.264 or H.265 lens tracks")
+                raise StitchError("Expected H.264 or H.265 lens tracks")
             width, height = video["width"], video["height"]
             if width != height or not 32 <= width <= 8192:
                 raise StitchError("Only square lens tracks up to 8192 pixels are supported")
@@ -56,7 +65,7 @@ def source_profile(path, metadata):
                 or abs(float(rate) - nominal) > nominal * 0.0011
             ):
                 raise StitchError(
-                    "Capture and playback frame rates disagree; retimed A1 recordings need a qualified clock"
+                    "Capture and playback frame rates disagree; retimed recordings need a qualified clock"
                 )
             count = int(video["nb_frames"])
             if count <= 0:

@@ -42,6 +42,14 @@ listed under **Unreleased** in the changelog, not part of the 0.9.0 release.
 
 This is an independent implementation, not an official Antigravity or Insta360 product.
 
+Development builds add a [camera-adapter preflight and frame-mapped X5 audio
+companions](docs/camera-adapters.md). `a1-stitch preflight SOURCE.insv` checks
+standard SDR X5 ingest separately from rendering readiness. `extract-audio`
+exports a selected source-frame interval as verified PCM WAV without dropping
+or padding sound. **Independent X5 sphere export is not yet qualified**; its
+orientation/image clock and native-resolution moving seams still need validation.
+A1 exports, CLI compatibility and camera-specific profile boundaries remain intact.
+
 ## What conversion preserves and bakes in
 
 **Keep the INSV/INSP originals. Exported video and TIFFs are rendered 360° working copies,

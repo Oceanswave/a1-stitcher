@@ -40,5 +40,8 @@ with reused alignment, producing the same recipe. The integration test requires
 three overlap fits per batch job instead of six and verifies the rendered output.
 This is a setup measurement, not a claim that decoding or rendering is faster.
 
-Outside this scope: other camera models, a flat-video exporter, a general editor
-and a persistent re-export cache. A1 firmware and capture modes remain in scope.
+The first shared-camera phase adds [X5 SDR input preflight and audio companions](camera-adapters.md),
+while X5 sphere export remains gated on orientation, timing and motion/seam
+qualification. Broader camera support, a flat-video exporter, a general editor
+and a persistent re-export cache remain deferred. A1 firmware and capture modes
+remain in scope.
