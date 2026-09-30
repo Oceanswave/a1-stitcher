@@ -15,6 +15,7 @@ from .calibration import lens_fingerprint, load_calibration
 from .errors import StitchError
 from .insv import InsvReader
 from .metal import select_backend
+from .modes import require_recording_mode
 from .projection import TiledStitcher, lenses_from_metadata
 from .storage import (
     digest,
@@ -149,6 +150,7 @@ def export_photo(
         raise StitchError(
             "Expected a supported A1 rendered INSP photo; RAW/log development is not implemented"
         )
+    mode = require_recording_mode(meta, "photo")
     view = Viewpoint(reader, photo=True)
     before = identity(source)
     with Image.open(source) as photo:
@@ -173,6 +175,7 @@ def export_photo(
     backend_info = select_backend(backend)
     recipe = dict(
         kind="a1-insp-rgb16-v1",
+        recording_mode=mode,
         package_version=__version__,
         source_identity=before,
         width=width,

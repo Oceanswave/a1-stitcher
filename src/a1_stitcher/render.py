@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import time
 from contextlib import ExitStack
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -18,7 +19,7 @@ import scipy
 from scipy.spatial.transform import Rotation, Slerp
 
 from . import __version__
-from .calibration import load_calibration
+from .calibration import load_calibration, validate_calibration
 from .encoding import check_encoder, encoder_command, encoding_profile
 from .errors import ProcessError, StitchError
 from .gpx import decode_gps, gpx_bytes, verify_gpx
@@ -59,6 +60,33 @@ class Options:
     view: str = "pilot"
 
 
+@dataclass(frozen=True)
+class PreparedAlignment:
+    """Small, in-memory result of batch preflight; never stored as a disk cache.
+
+    Keep only the fitted alignment and its input identity. Large viewport and
+    telemetry arrays are rebuilt one job at a time, and normal preflight checks
+    still run immediately before rendering.
+    """
+
+    options: Options
+    source_identity: dict
+    calibration: dict
+    calibration_sha256: str
+
+    @classmethod
+    def from_plan(cls, options, job):
+        if options.calibration:
+            return None
+        calibration = deepcopy(job["calibration"])
+        return cls(
+            options,
+            deepcopy(job["recipe"]["source_identity"]),
+            calibration,
+            fingerprint(calibration),
+        )
+
+
 def sensor_readout(metadata, fps, mode):
     if mode not in ["auto", "off"]:
         raise StitchError("Rolling shutter mode must be auto or off")
@@ -76,7 +104,7 @@ def sensor_readout(metadata, fps, mode):
     return milliseconds / 1000
 
 
-def plan(options, progress=None):
+def plan(options, progress=None, *, prepared_alignment=None):
     if any(
         isinstance(getattr(options, k), bool) or not isinstance(getattr(options, k), int)
         for k in ["first_frame", "frames", "width", "lens_width", "threads"]
@@ -118,6 +146,15 @@ def plan(options, progress=None):
     ):
         raise StitchError("Heading reference frame must be -1 or a nonnegative integer")
     source = Path(options.source).resolve(strict=True)
+    source_before = identity(source)
+    if prepared_alignment is not None and (
+        not isinstance(prepared_alignment, PreparedAlignment)
+        or prepared_alignment.options != options
+        or prepared_alignment.source_identity != source_before
+        or fingerprint(prepared_alignment.calibration) != prepared_alignment.calibration_sha256
+        or options.calibration is not None
+    ):
+        raise StitchError("Source, settings or prepared alignment changed after batch preflight")
     calibration_path = (
         Path(options.calibration).resolve(strict=True) if options.calibration else None
     )
@@ -156,6 +193,11 @@ def plan(options, progress=None):
         raise StitchError("Requested frame range exceeds source video")
     if calibration_path:
         calibration = load_calibration(calibration_path, metadata)
+    elif prepared_alignment is not None:
+        calibration = deepcopy(prepared_alignment.calibration)
+        validate_calibration(calibration, metadata)
+        if progress:
+            progress(dict(stage="alignment", status="reused-batch-preflight"))
     else:
         from .automatic import calibration_from_original
 
@@ -299,7 +341,7 @@ def plan(options, progress=None):
         dependencies=dict(numpy=np.__version__, scipy=scipy.__version__, opencv=cv2.__version__),
         ffmpeg_version=version,
         source=str(source),
-        source_identity=identity(source),
+        source_identity=source_before,
         calibration=calibration,
         settings=settings,
         profile=profile,
@@ -337,6 +379,8 @@ def plan(options, progress=None):
         ),
         backend=backend,
     )
+    if identity(source) != source_before:
+        raise StitchError("Source changed during preflight")
     return dict(
         recipe=recipe,
         recipe_sha256=fingerprint(recipe),
@@ -373,9 +417,9 @@ def plan(options, progress=None):
     )
 
 
-def stitch(options, progress=None, dry_run=False):
+def stitch(options, progress=None, dry_run=False, *, prepared_alignment=None):
     started = time.monotonic()
-    job = plan(options, progress=progress)
+    job = plan(options, progress=progress, prepared_alignment=prepared_alignment)
     public_plan = {
         k: v
         for k, v in job.items()

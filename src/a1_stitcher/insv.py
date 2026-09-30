@@ -110,9 +110,13 @@ class InsvReader:
             56: "original_offset_v3",
         }
         expected_wires = {number: 2 for number in strings}
-        expected_wires.update({number: 0 for number in [20, 24, 29, 40, 42, 43, 62, 175]})
-        expected_wires.update({25: 1, 28: 1, 19: 2, 27: 2, 31: 2, 65: 2})
+        expected_wires.update(
+            {number: 0 for number in [15, 20, 24, 29, 40, 42, 43, 62, 97, 153, 175, 203, 208]}
+        )
+        expected_wires.update({25: 1, 28: 1, 19: 2, 26: 2, 27: 2, 31: 2, 65: 2})
         for number, entries in fields.items():
+            if number in expected_wires and len(entries) != 1:
+                raise ValueError(f"Duplicate singular metadata field {number}")
             if number in expected_wires and any(
                 wire != expected_wires[number] for wire, _ in entries
             ):
@@ -127,6 +131,7 @@ class InsvReader:
                     else value
                 )
         for number, name in {
+            15: "hdr_state",
             20: "frame_rate_nominal",
             24: "first_frame_timestamp_us",
             29: "has_gyro_timestamp",
@@ -134,7 +139,11 @@ class InsvReader:
             42: "flowstate_online",
             43: "is_dewarp",
             62: "is_raw_gyro",
+            97: "hdr_mode",
+            153: "uav_camera_mode",
             175: "propeller_guard_status",
+            203: "video_bit_depth",
+            208: "ultra_hdr_enabled",
         }.items():
             if number in fields:
                 data[name] = fields[number][0][1]
@@ -153,9 +162,13 @@ class InsvReader:
                 }
         if 31 in fields and len(fields[31][0][1]) >= 48:
             data["gyro_calibration_values"] = list(struct.unpack_from("<6d", fields[31][0][1]))
-        data["unknown_protobuf_field_numbers"] = sorted(
-            set(fields) - set(strings) - {19, 20, 24, 25, 27, 28, 29, 31, 40, 42, 43, 62, 65}
-        )
+        if 26 in fields:
+            group = protobuf_fields(fields[26][0][1])
+            if 1 in group:
+                if len(group[1]) != 1 or group[1][0][0] != 0:
+                    raise ValueError("Invalid file-group recording mode")
+                data["file_group_type"] = group[1][0][1]
+        data["unknown_protobuf_field_numbers"] = sorted(set(fields) - set(expected_wires))
         return data
 
     def write_telemetry_adapter(self, output, kinds=(1, 3, 4)):
@@ -202,6 +215,10 @@ class InsvReader:
             records=records,
             classification="raw camera media; not stitched, not stabilized by this inspector",
         )
+        if metadata.get("camera_type") == "Antigravity A1":
+            from .modes import recording_mode
+
+            result["recording_mode"] = recording_mode(metadata)
         if 3 in self.records and metadata.get("is_raw_gyro"):
             payload = self.payload(3)
             if not payload or len(payload) % 20:
@@ -220,9 +237,15 @@ class InsvReader:
                 time_convention="raw timestamps minus first video frame timestamp; no undocumented offset applied",
             )
         if 4 in self.records and metadata.get("camera_type") == "Antigravity A1":
+            from .errors import StitchError
             from .exposure import exposure_summary
 
-            result["exposure"] = exposure_summary(self)
+            try:
+                result["exposure"] = exposure_summary(self)
+            except StitchError as exc:
+                # Inspection should still identify a retimed recording whose
+                # exposure cadence is outside the supported normal-video clock.
+                result["exposure"] = dict(supported=False, reason=str(exc))
         if 32 in self.records and metadata.get("camera_type") == "Antigravity A1":
             from .errors import StitchError
             from .viewpoint import Viewpoint

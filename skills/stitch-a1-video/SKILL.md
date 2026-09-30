@@ -42,6 +42,18 @@ additional rounding; it does not add captured detail or dynamic range. Log/HDR
 inputs are rejected. Do not apply a guessed iLog/D-Log LUT. Output is limited-range
 SDR BT.709; final matching/grading stays in the existing Resolve/Fusion workflow.
 
+Keep the scope **Antigravity A1 only**. Check the repository's
+`docs/recording-modes.md` before assuming another A1 mode is supported. Official
+capabilities include slow motion, timelapse, HDR/AEB/burst photos and DNG, but their
+independent processing is not yet qualified. HDR photos and goggles audio do not
+establish HDR video or drone-microphone capture. Standard-rate profile tests are
+not substitutes for real moving footage.
+
+Development builds after 0.9.0 add `recording_mode` to inspection and receipts and
+reject unsupported mode declarations and capture/playback rate mismatches. A
+missing field on an older CLI is not proof of a normal recording. Do not remove
+mode metadata or override timing to bypass an unsupported-mode error.
+
 ## Default original-only setup and pilot view
 
 Omit `--calibration` to use embedded lens geometry, original overlap alignment
@@ -91,6 +103,11 @@ Run `a1-stitch inspect SOURCE.insv --output NEW_REPORT.json`. Confirm A1 identit
 two square lens tracks, timing and embedded calibration. An INSV suffix or 2:1
 raster alone does not prove stitching. Preserve originals and private profiles.
 Reports may reveal paths; GPX reveals real locations even with paths redacted.
+
+Avoid persistent decoded-media caches. Development batches reuse their preflight
+alignment in memory and revalidate inputs; default temporary-file cleanup stays
+enabled. Use `--keep-work` only for a deliberate diagnostic need. Preserve final
+receipts, companions and originals.
 
 When using advanced sensor processing, an existing calibration must match the original's embedded-lens fingerprint.
 Do not borrow another camera's mounting transform. New calibration needs a full
