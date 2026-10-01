@@ -50,6 +50,11 @@ or padding sound. **Independent X5 sphere export is not yet qualified**; its
 orientation/image clock and native-resolution moving seams still need validation.
 A1 exports, CLI compatibility and camera-specific profile boundaries remain intact.
 
+`a1-stitch recorded-calibration SOURCE.insv --frame N` recovers
+[recorded X5 V6 lens/accessory parameters and exposure-clock evidence](docs/x5-recorded-parameters.md).
+It prioritizes interpreting the calibration already in originals; it does not
+apply unverified coefficients, gyro transforms or image timing to rendering.
+
 ## What conversion preserves and bakes in
 
 **Keep the INSV/INSP originals. Exported video and TIFFs are rendered 360° working copies,

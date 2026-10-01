@@ -81,6 +81,13 @@ def parser():
     preflight.add_argument("source")
     preflight.add_argument("--output")
     preflight.add_argument("--redact-path", action="store_true")
+    recorded = sub.add_parser(
+        "recorded-calibration", help="Read X5 recorded lens/accessory parameters and clock evidence"
+    )
+    recorded.add_argument("source")
+    recorded.add_argument("--frame", type=int)
+    recorded.add_argument("--output")
+    recorded.add_argument("--redact-path", action="store_true")
     audio = sub.add_parser(
         "extract-audio", help="Export a frame-mapped PCM companion from qualified ingest"
     )
@@ -384,13 +391,17 @@ def main(argv=None):
             from .audio import extract_audio
 
             result = extract_audio(args.source, args.output, args.first_frame, args.frames)
-        elif args.command in ("inspect", "preflight"):
+        elif args.command in ("inspect", "preflight", "recorded-calibration"):
             from .insv import InsvReader
 
             if args.command == "preflight":
                 from .preflight import preflight
 
                 result = preflight(args.source)
+            elif args.command == "recorded-calibration":
+                from .recorded import recorded_calibration
+
+                result = recorded_calibration(args.source, frame=args.frame)
             else:
                 result = InsvReader(args.source).inspect()
             if args.redact_path:

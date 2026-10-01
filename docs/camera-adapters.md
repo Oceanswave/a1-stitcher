@@ -62,6 +62,12 @@ ClarityPlus enhancement is a comparison confounder. No reusable X5 per-unit
 sensor-to-lens orientation/image-timing calibration is available. No independent
 X5 candidate has completed native-resolution motion or seam review.
 
+Further inspection recovers [recorded V6 lens/accessory parameters and exposure
+clock evidence](x5-recorded-parameters.md) with `recorded-calibration`. The originals
+already carry additional calibration data; interpreting and validating those
+values comes before requiring manual recalibration. Parameter recovery does not
+enable sphere export.
+
 Private PCM checks covered two source-mapped intervals (150 frames from source
 frame 0, and 600 frames from source frame 89). The companions fully decoded with
 240240 and 960960 samples per channel. Comparison with Studio's AAC audio found
@@ -76,8 +82,9 @@ no-clobber behavior and the X5 render gate. Private source checks are separate
 from synthetic tests. Originals, metadata dumps, profiles and generated media
 stay outside commits.
 
-To enable X5 sphere export, first fit and transfer-test a model-specific
-orientation/gyro convention and image clock from this unit's originals. Retain
+To enable X5 sphere export, first interpret the recorded optical/model parameters
+and transfer-test the orientation/gyro convention and image clock against this
+unit's existing originals. Retain
 unmodified calibration recordings with stationary texture and varied three-axis
 motion, capture settings and firmware. Compare at least two independent moving
 recordings against source-mapped, unenhanced native Studio spheres. Review whole

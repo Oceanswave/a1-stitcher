@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Recover recorded X5 V6 lens/accessory parameter candidates and exposure-clock
+  evidence with `recorded-calibration`, including source identity and parameter
+  fingerprints. Preserve opaque coefficient/gyro slots without guessing their
+  equations or applying timing offsets. X5 rendering remains gated.
 - Separate camera adapter input contracts from qualified sphere export. Preserve
   A1 behavior and add read-only standard SDR X5 preflight with explicit model,
   color, recording-mode, audio and raw-IMU timing checks. X5 rendering remains
