@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Separate camera adapter input contracts from qualified sphere export. Preserve
+  A1 behavior and add read-only standard SDR X5 preflight with explicit model,
+  color, recording-mode, audio and raw-IMU timing checks. X5 rendering remains
+  blocked; X6/older models remain unsupported.
+- Add source-frame-mapped X5 float32 PCM audio companions with rational sample
+  boundaries, exact decoded sample count, no-clobber publication and receipts.
+  Refuse uncovered audio tails; do not pad, shift or claim content sync.
+
 - Report A1 recording-mode declarations in inspection and conversion receipts.
   Reject unqualified retimed/grouped modes, conflicting declarations, declared
   HDR/higher precision and capture/playback rate mismatches. Add synthetic tests

@@ -59,7 +59,7 @@ def recording_mode(metadata):
     )
 
 
-def require_recording_mode(metadata, kind):
+def require_recording_mode(metadata, kind, *, camera="A1"):
     report = recording_mode(metadata)
     mode = report["name"]
     if mode not in [f"standard-{kind}", "unspecified"]:
@@ -71,7 +71,7 @@ def require_recording_mode(metadata, kind):
             reason = "grouped capture and exposure merging are not yet qualified"
         else:
             reason = "the declared recording mode is not qualified for this export"
-        raise StitchError(f"A1 {mode}: {reason}; see docs/recording-modes.md")
+        raise StitchError(f"{camera} {mode}: {reason}; see docs/recording-modes.md")
     # Do not mistake a shared metadata enum for proof that the A1 offers HDR.
     # If an original declares it, require a qualified development path regardless.
     if (
