@@ -179,9 +179,12 @@ Existing originals, projects and reference exports were preserved.
 
 Each recording has an unstabilized optical export and a corresponding FlowState
 export, both with direction lock off, accessory 0 (guards off), optional stitching
-optimization and chromatic calibration off, ClarityPlus/color processing off,
-HDR/APMP off, source frame rate and retained stereo 48 kHz AAC. Export dialogs and
-actual saved project settings were retained privately. A saved multiframe-denoise
+optimization and chromatic calibration off, HDR/APMP off, source frame rate and
+retained stereo 48 kHz AAC. Export dialogs and actual saved project settings were
+retained privately. The short recording's saved Color Plus and motion-blur flags
+are off, but both long-recording snapshots retain those flags as true. The long
+pair therefore cannot be certified as unenhanced; the `clean` output names are
+preparation labels, not an acceptance claim. A saved multiframe-denoise
 flag remains true without an active video enhancement switch; its runtime gating
 has not been independently traced, so these exports are not asserted to prove
 absence of all temporal vendor processing.
@@ -207,7 +210,8 @@ establish the opposing lens poses without the renderer's basis/index conventions
 
 Raw-to-FlowState image fits at 20 sampled frames across both recordings produced
 median angular residuals of about 0.024–0.093 degrees after one rigid rotation per
-frame. These establish closely corresponding reference content and applied pose;
+frame. These measure sampled content correspondence and applied pose under the
+recorded settings, with the long-recording enhancement confound unresolved;
 they do not qualify an independent stabilizer or horizon quality. A gyro mounting,
 bias and clock experiment fitted six short-clip gravity poses, held out five more,
 then transferred to the longer recording. Holdout RMS was about 0.013 degrees but
