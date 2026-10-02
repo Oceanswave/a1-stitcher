@@ -8,6 +8,7 @@ from a1_stitcher.x5_projection import (
     diagnostic_lens,
     distort,
     pixel_diagnostic,
+    pose_diagnostic,
     project,
     ray_diagnostic,
     undistort,
@@ -65,6 +66,7 @@ def parameters():
             sensor_height=128,
             sensor_intrinsics=dict(fx=100, fy=102, cx=64 + i * 128, cy=65),
             distortion_slots=[0.0] * 13,
+            extrinsic_angle_values=[0, 0, 90],
         )
         for i in (0, 1)
     ]
@@ -118,6 +120,8 @@ def test_diagnostics_reject_uninterpreted_parameter_variants(parameters, case):
         index = True
     with pytest.raises(StitchError):
         diagnostic_lens(parameters, index)
+    with pytest.raises(StitchError):
+        pose_diagnostic(parameters, index)
 
 
 def test_invalid_polynomial_inputs_and_folded_inverse_are_not_valid():
@@ -180,3 +184,75 @@ def test_forward_projection_rejects_far_branch_uncovered_and_folded_rays(paramet
     lens["distortion"][0] = -10
     _, valid = project([[0.9, 0, np.sqrt(0.19)]], lens)
     assert not valid[0]
+
+
+def test_recorded_pose_opposing_lenses_and_matrix_direction(parameters):
+    # Analytic cardinal case: Ry(90) Rx(90), with the two-lens index rule.
+    front = pose_diagnostic(parameters, 0, [0, 0, 1e300])
+    back = pose_diagnostic(parameters, 1, [0, 0, 1e-300])
+    assert np.array(front["parsed_rotation_matrix"]) == pytest.approx(
+        np.array([[0, 1, 0], [0, 0, -1], [-1, 0, 0]]), abs=1e-14
+    )
+    assert np.array(front["recorded_dewarp_to_lens_matrix"]) == pytest.approx(
+        np.array([[0, -1, 0], [0, 0, -1], [1, 0, 0]]), abs=1e-14
+    )
+    assert front["recorded_dewarp_unit_ray"] == pytest.approx([1, 0, 0], abs=1e-14)
+    assert back["recorded_dewarp_unit_ray"] == pytest.approx([-1, 0, 0], abs=1e-14)
+    for report in (front, back):
+        d = np.array(report["recorded_dewarp_to_lens_matrix"])
+        assert d @ np.array(report["lens_to_recorded_dewarp_matrix"]) == pytest.approx(
+            np.eye(3), abs=1e-14
+        )
+        assert np.linalg.det(d) == pytest.approx(1)
+        assert not any(
+            report[k]
+            for k in ("translation_applied", "gyro_transform_applied", "applied_to_renderer")
+        )
+
+
+def test_recorded_pose_noncommuting_angles_against_analytic_matrices(parameters):
+    a, b, c = np.radians([31, -47, 68])
+    rz = np.array([[np.cos(a), -np.sin(a), 0], [np.sin(a), np.cos(a), 0], [0, 0, 1]])
+    ry = np.array([[-np.sin(b), 0, np.cos(b)], [0, 1, 0], [-np.cos(b), 0, -np.sin(b)]])
+    rx = np.array([[1, 0, 0], [0, np.cos(c), -np.sin(c)], [0, np.sin(c), np.cos(c)]])
+    for record in ("offset_v6", "original_offset_v6"):
+        parameters[record]["lenses"][1]["extrinsic_angle_values"] = [31, -47, 68]
+    report = pose_diagnostic(parameters, 1, [0.3, -0.4, np.sqrt(0.75)])
+    assert np.array(report["parsed_rotation_matrix"]) == pytest.approx(ry @ rz @ rx)
+    assert np.array(report["recorded_dewarp_to_lens_matrix"]) == pytest.approx(ry @ rz @ rx)
+    assert report["recorded_dewarp_unit_ray"] == pytest.approx(
+        (ry @ rz @ rx).T @ [0.3, -0.4, np.sqrt(0.75)]
+    )
+
+
+def test_first_lens_index_operation_on_nonidentity_rotation(parameters):
+    for record in ("offset_v6", "original_offset_v6"):
+        parameters[record]["lenses"][0]["extrinsic_angle_values"] = [90, -90, 0]
+    report = pose_diagnostic(parameters, 0)
+    assert np.array(report["parsed_rotation_matrix"]) == pytest.approx(
+        np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]]), abs=1e-14
+    )
+    assert np.array(report["recorded_dewarp_to_lens_matrix"]) == pytest.approx(
+        np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]]), abs=1e-14
+    )
+
+
+@pytest.mark.parametrize("angles", [[0, 1], [0, 1, float("nan")], [0, float("inf"), 2]])
+def test_recorded_pose_rejects_invalid_angles(parameters, angles):
+    for record in ("offset_v6", "original_offset_v6"):
+        parameters[record]["lenses"][0]["extrinsic_angle_values"] = angles
+    with pytest.raises(StitchError, match="finite degree"):
+        pose_diagnostic(parameters, 0)
+
+
+@pytest.mark.parametrize("ray", [[0, 0, 0], [0, float("nan"), 1], [0, 1]])
+def test_recorded_pose_rejects_invalid_rays(parameters, ray):
+    with pytest.raises(StitchError, match="finite nonzero"):
+        pose_diagnostic(parameters, 0, ray)
+
+
+def test_recorded_pose_requires_two_lenses(parameters):
+    for record in ("offset_v6", "original_offset_v6"):
+        parameters[record]["lenses"] = parameters[record]["lenses"][:1]
+    with pytest.raises(StitchError, match="exactly two"):
+        pose_diagnostic(parameters, 1)

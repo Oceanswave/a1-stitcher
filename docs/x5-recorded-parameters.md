@@ -36,7 +36,8 @@ and a lens-type value. The command currently accepts the observed type 113 and
 square sensor layout. It preserves all thirteen slots rather than replacing them
 with an A1 five-coefficient profile or third-party per-unit constants. The
 independent polynomial and observed crop mapping are now available for explicit
-ray diagnostics below. Angle/translation conventions and production image
+ray diagnostics below. The recorded static-dewarp angle/index convention is
+also available as an explicit diagnostic. Translation and production image
 quality remain unqualified; no lens matrix is supplied to sphere rendering.
 
 Field 145 contains observed named entry lists: six doubles per name in group 1,
@@ -160,9 +161,70 @@ automatic timing correction enter the CLI, defaults or repository fixtures.
 
 ## Next validation
 
+### Recorded pose diagnostic
+
+```sh
+a1-stitch recorded-calibration SOURCE.insv --lens 0 --pose \
+  --redact-path --output NEW_POSE.json
+```
+
+`--pose` requires `--lens` and can accompany `--pixel` or `--ray`. It reports
+the parsed rotation, the recorded-dewarp-to-lens matrix, its inverse, and, when
+a ray diagnostic is present, that ray in the recorded dewarp basis. This basis
+sets common render centering and the supplied render orientation to identity.
+It is not an IMU frame, an earth/horizon frame or a qualified renderer profile.
+The observed guards-OFF, unchanged-parameter and centered-crop restrictions
+still apply. Translation and gyro transforms remain unapplied.
+
+Read-only tracing of the V6 parser and static-dewarp geometry in cached Studio
+6.0.5, cross-checked against 6.0.6, establishes the following mathematical
+convention for recorded angle slots `(a,b,c)` in degrees:
+
+```text
+parsed rotation = Ry(b + 90 degrees) * Rz(a) * Rx(c)
+two-lens index 0: parsed quaternion (x,y,z,w) becomes (y,-x,w,-z)
+two-lens index 1: parsed quaternion is retained
+adjusted matrix: recorded dewarp direction -> lens direction
+transpose: lens direction -> recorded dewarp direction
+```
+
+A private numeric trace agreed with the angle expression across 100 arbitrary
+angle triples within 9.5e-16 maximum absolute matrix error. Synthetic repository
+tests check noncommuting rotations against analytical axis matrices, cardinal
+opposing-lens cases, matrix direction and invalid inputs. No vendor implementation
+code, binaries or per-unit fitted constants are included.
+
+The convention was tested against all twelve existing native lens fits. Six
+relative-pose discrepancies span 0.281–0.542 degrees. A single common reference
+orientation trained on half the first frame's lens-0 correspondences and fixed
+across both recordings produced holdout medians of 0.135–0.374 degrees and P95
+of 0.308–0.682 degrees. These use previously selected robust-fit inliers and are
+conditional evidence, not independent moving-seam acceptance.
+
+Further offline residual checks trained each lens's reference rotation on that
+same first frame and held it fixed across the other frames and recording. Lens-1
+holdout medians then span 0.045–0.078 degrees, compared with about 0.30–0.38
+degrees using the recorded pose. This suggests a repeatable discrepancy relative
+to the references, without identifying its cause or certifying a fitted correction.
+Removing the centered crop consistently increases error; endpoint versus dimension
+scaling remains too similar to distinguish with these image observations. Lens-0
+variation and spatial residuals retain parallax, motion/readout and reference
+processing confounders. No residual fit is adopted.
+
+Cached sensor-conversion functions confirm `(unsigned_sample - 32768) *
+recorded_range / 32768`, with degrees-to-radians conversion for gyro. The observed
+lens type 113 and offset version byte 4 resolve to a vendor axis branch mapping
+gyro `(x,y,z)` to `(-y,z,-x)` and acceleration to `(y,-z,x)`. This is a traced
+stabilizer input convention, not yet a verified gyro-to-lens transform: downstream
+frame conversion, calibration/bias, fusion and image timing remain unresolved.
+No sensor transform is applied by `--pose` or to the renderer.
+
+### Remaining image and sensor qualification
+
 Use the recovered originals' parameters first. Establish the V6 projection/crop
-convention with independent source-ray/reference correspondences, then establish
-gyro axes and timestamp sign against motion measured from the original images.
+and residual interpretation with independent source-ray/reference correspondences,
+then establish the sensor-to-image frame and timestamp sign against motion measured
+from the original images.
 Validate transfer across the already available recordings before deciding whether
 additional capture is needed. Clean source-mapped native Studio comparisons must
 record accessory overrides, stabilization/direction-lock and enhancement settings.

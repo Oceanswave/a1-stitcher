@@ -87,6 +87,11 @@ def parser():
     recorded.add_argument("source")
     recorded.add_argument("--frame", type=int)
     recorded.add_argument("--lens", type=int, choices=[0, 1])
+    recorded.add_argument(
+        "--pose",
+        action="store_true",
+        help="Diagnostic recorded V6 dewarp rotation; requires --lens, never enables export",
+    )
     direction = recorded.add_mutually_exclusive_group()
     direction.add_argument(
         "--pixel",
@@ -418,8 +423,9 @@ def main(argv=None):
                 from .recorded import recorded_calibration
 
                 result = recorded_calibration(args.source, frame=args.frame)
-                if (args.pixel is None and args.ray is None) != (args.lens is None):
-                    raise StitchError("Use --pixel U V or --ray X Y Z together with --lens")
+                has_diagnostic = args.pixel is not None or args.ray is not None or args.pose
+                if has_diagnostic != (args.lens is not None):
+                    raise StitchError("Use --pixel U V, --ray X Y Z or --pose together with --lens")
                 if args.pixel is not None:
                     from .x5_projection import pixel_diagnostic
 
@@ -431,6 +437,14 @@ def main(argv=None):
 
                     result["ray_diagnostic"] = ray_diagnostic(
                         result["parameters"], args.lens, args.ray
+                    )
+                if args.pose:
+                    from .x5_projection import pose_diagnostic
+
+                    result["pose_diagnostic"] = pose_diagnostic(
+                        result["parameters"],
+                        args.lens,
+                        result.get("ray_diagnostic", {}).get("unit_ray"),
                     )
             else:
                 result = InsvReader(args.source).inspect()

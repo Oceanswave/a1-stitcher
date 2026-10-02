@@ -206,6 +206,18 @@ def test_cli_applies_recorded_geometry_only_to_explicit_ray_diagnostic(recorded_
     report = json.loads(capsys.readouterr().out)
     assert report["ray_diagnostic"]["decoded_pixel"] == pytest.approx([64, 65])
     assert not report["sphere_export_available"]
+    assert main(args + ["--pose"]) == 1
+    assert main(args + ["--lens", "1", "--pose"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert "pose_diagnostic" in report and "ray_diagnostic" not in report
+    assert not report["pose_diagnostic"]["applied_to_renderer"]
+    assert not report["sphere_export_available"]
+    assert main(args + ["--lens", "1", "--pose", "--pixel", "64", "65"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    inverse = report["pose_diagnostic"]["lens_to_recorded_dewarp_matrix"]
+    assert report["pose_diagnostic"]["recorded_dewarp_unit_ray"] == pytest.approx(
+        [row[2] for row in inverse]
+    )
     assert main(args + ["--ray", "0", "0", "1"]) == 1
     assert main(args + ["--lens", "1", "--ray", "0", "0", "0"]) == 1
     with pytest.raises(SystemExit):

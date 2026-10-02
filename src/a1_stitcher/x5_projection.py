@@ -7,8 +7,53 @@ or per-unit constants are included. Native motion/seam qualification is pending.
 """
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from .errors import StitchError
+
+
+def pose_diagnostic(parameters, lens_index, lens_ray=None):
+    """Recorded static-dewarp rotation, with common render orientation set to identity.
+
+    This independent mathematical convention is a diagnostic, not an accepted
+    extrinsic profile. Translation, render centering and IMU transforms are absent.
+    """
+    lenses = parameters["offset_v6"]["lenses"]
+    if len(lenses) != 2:
+        raise StitchError("V6 pose diagnostics require exactly two lenses")
+    diagnostic_lens(parameters, lens_index)
+    angles = np.asarray(lenses[lens_index]["extrinsic_angle_values"], dtype=np.float64)
+    if angles.shape != (3,) or not np.isfinite(angles).all():
+        raise StitchError("V6 pose angles must be three finite degree values")
+    a, b, c = np.remainder(angles, 360)
+    # Intrinsic YZX composes Ry(b+90) @ Rz(a) @ Rx(c) for column vectors.
+    parsed = Rotation.from_euler("YZX", [b + 90, a, c], degrees=True)
+    adjusted = parsed
+    if lens_index == 0:
+        x, y, z, w = parsed.as_quat()
+        adjusted = Rotation.from_quat([y, -x, w, -z])
+    matrix = adjusted.as_matrix()
+    report = dict(
+        lens=lens_index,
+        operation="recorded static-dewarp pose diagnostic",
+        angle_convention="Ry(second + 90 degrees) @ Rz(first) @ Rx(third)",
+        parsed_rotation_matrix=parsed.as_matrix().tolist(),
+        recorded_dewarp_to_lens_matrix=matrix.tolist(),
+        lens_to_recorded_dewarp_matrix=matrix.T.tolist(),
+        coordinate_system="recorded dewarp basis with common render centering/orientation identity",
+        translation_applied=False,
+        gyro_transform_applied=False,
+        applied_to_renderer=False,
+        qualification="Diagnostic convention only; reference residuals and native motion/seams unqualified",
+    )
+    if lens_ray is not None:
+        ray = np.asarray(lens_ray, dtype=np.float64)
+        if ray.shape != (3,) or not np.isfinite(ray).all() or not np.any(ray):
+            raise StitchError("V6 pose ray must be a finite nonzero three-vector")
+        ray = ray / np.max(np.abs(ray))
+        ray /= np.linalg.norm(ray)
+        report["recorded_dewarp_unit_ray"] = (matrix.T @ ray).tolist()
+    return report
 
 
 def distort(points, coefficients, jacobian=False):

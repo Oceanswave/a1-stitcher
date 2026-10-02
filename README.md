@@ -57,7 +57,9 @@ apply unverified coefficients, gyro transforms or image timing to rendering.
 An explicit `--lens 0 --pixel U V` applies the recorded V6 polynomial to an
 experimental pixel-ray diagnostic. `--lens 0 --ray X Y Z` performs the inverse
 direction, projecting a lens-coordinate ray to a decoded pixel with a checked
-round trip. These diagnostics do not enable X5 sphere export.
+round trip. Add `--pose` to report the recorded static-dewarp rotation and the
+ray in that basis, or use `--lens 0 --pose` to inspect the matrices alone.
+These diagnostics do not enable X5 sphere export.
 
 ## What conversion preserves and bakes in
 
