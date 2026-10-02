@@ -175,7 +175,11 @@ screen-capture preflight and harmless Studio control queries succeeded. Four new
 native reference exports were completed through Studio 6.0.6 using checksummed
 working copies and independent saved projects. The task did not change permission
 or security settings, accept agreements, adopt an SDK or add a vendor dependency.
-Existing originals, projects and reference exports were preserved.
+Original footage checksums and prior reference exports were preserved. A final
+sidecar audit found that Studio autosaved the original project sidecars as well
+as the working-copy projects; their current settings mirror the working copies.
+Existing Studio projects therefore cannot be claimed untouched. Verified prior
+sidecar before-images were unavailable, so no guessed restoration was attempted.
 
 Each recording has an unstabilized optical export and a corresponding FlowState
 export, both with direction lock off, accessory 0 (guards off), optional stitching
