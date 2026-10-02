@@ -184,10 +184,21 @@ retained stereo 48 kHz AAC. Export dialogs and actual saved project settings wer
 retained privately. The short recording's saved Color Plus and motion-blur flags
 are off, but both long-recording snapshots retain those flags as true. The long
 pair therefore cannot be certified as unenhanced; the `clean` output names are
-preparation labels, not an acceptance claim. A saved multiframe-denoise
-flag remains true without an active video enhancement switch; its runtime gating
-has not been independently traced, so these exports are not asserted to prove
-absence of all temporal vendor processing.
+preparation labels, not an acceptance claim. That pair was preserved and replaced
+by new full-range optics/FlowState exports with Color Plus and Motion ND verified
+off in both the GUI and saved project snapshots. An intervening two-frame optics
+export was also preserved as a rejected artifact, with the replacement's zero
+left/right trims verified before export. Both replacements fully decoded with
+audio and contain 3497 frames covering source 0 through 3495 plus the excluded tail.
+
+A saved multiframe-denoise flag remains true without an active video enhancement
+switch. Read-only inspection of the installed Studio 6.0.6 binary traced the
+`pro::InstaHelper::CreateMultiFrameDenoiseFilter` path: it checks metadata cache and
+video eligibility, then returns a null filter for a panoramic asset. The global
+`filter/denoise` setting and a separate `studio::PostFilterFactory` construction
+path also exist. This establishes a mode-dependent gate, not observation of the
+live export filter graph. Binary runtime logs were unreadable and no live filter
+receipt was available; absence of all temporal vendor processing remains unproven.
 
 All four exports fully decode as 7680x3840 HEVC at 30000/1001 fps. The short pair
 contains 167 frames from source frame zero. The long pair contains 3497 output
@@ -201,21 +212,26 @@ frame's correspondence.
 Private comparisons used native 3840-square images from both lenses and six
 perspective faces sampled from native references at three frames per recording.
 The centered endpoint model produced holdout median angular residuals of about
-0.046–0.194 degrees, versus 0.190–0.565 for an uncropped endpoint model. Endpoint
+0.045–0.209 degrees, versus 0.190–0.524 for an uncropped endpoint model. Endpoint
 and dimension scaling differed too little to qualify their distinction by these
 image measurements alone; the endpoint convention remains based on function
 inspection. Fitted rotations and spatial residuals are diagnostic evidence, not
 qualified lens extrinsics or seam profiles. Recorded angle slots do not directly
 establish the opposing lens poses without the renderer's basis/index conventions.
+An experimental search adding a fixed lens-index half-turn reduced relative-pose
+disagreement to about 0.305 degrees on the short recording and 0.287 degrees on
+the corrected long recording. The convention was selected by a search and is
+neither independently verified nor applied to the renderer.
 
 Raw-to-FlowState image fits at 20 sampled frames across both recordings produced
-median angular residuals of about 0.024–0.093 degrees after one rigid rotation per
-frame. These measure sampled content correspondence and applied pose under the
-recorded settings, with the long-recording enhancement confound unresolved;
+median angular residuals of about 0.019–0.067 degrees after one rigid rotation per
+frame using the corrected long references. These measure sampled content
+correspondence and applied pose under the recorded settings;
 they do not qualify an independent stabilizer or horizon quality. A gyro mounting,
 bias and clock experiment fitted six short-clip gravity poses, held out five more,
 then transferred to the longer recording. Holdout RMS was about 0.013 degrees but
-transfer RMS was 10.7 degrees, reaching 17.5 degrees near the end. Gravity-only
+transfer RMS was 10.65 degrees, reaching 17.47 degrees near the end. This failure
+persists after disabling the long recording's Color Plus and Motion ND. Gravity-only
 fits leave heading, accelerometer fusion, gyro bias and image/readout timing
 confounded. No fitted mounting, bias or clock constant was adopted.
 
