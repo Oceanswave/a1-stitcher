@@ -202,6 +202,14 @@ def test_cli_applies_recorded_geometry_only_to_explicit_ray_diagnostic(recorded_
     assert main(args + ["--lens", "1"]) == 1
     assert main(args + ["--pixel", "64", "65"]) == 1
     assert main(args + ["--lens", "1", "--pixel", "nan", "65"]) == 1
+    assert main(args + ["--lens", "1", "--ray", "0", "0", "17"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ray_diagnostic"]["decoded_pixel"] == pytest.approx([64, 65])
+    assert not report["sphere_export_available"]
+    assert main(args + ["--ray", "0", "0", "1"]) == 1
+    assert main(args + ["--lens", "1", "--ray", "0", "0", "0"]) == 1
+    with pytest.raises(SystemExit):
+        main(args + ["--lens", "1", "--pixel", "64", "65", "--ray", "0", "0", "1"])
 
 
 @pytest.mark.integration

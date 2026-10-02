@@ -94,6 +94,19 @@ centered square crop. Invalid pixels, nonconvergence, projection singularities
 and unsupported variants fail. It does not supply a sphere-rendering profile,
 apply accessory entries or interpret an IMU/extrinsic transform.
 
+The corresponding forward diagnostic is:
+
+```sh
+a1-stitch recorded-calibration SOURCE.insv --lens 0 --ray X Y Z \
+  --redact-path --output NEW_PIXEL.json
+```
+
+The ray uses the same lens coordinate system and can have any finite nonzero
+length. Normalization avoids numerical overflow/underflow. The command rejects
+far-branch, folded and uncovered rays, then checks the projected pixel's inverse
+against the supplied direction. `--ray` and `--pixel` are mutually exclusive;
+both require `--lens`. No extrinsic or gyro transform is applied.
+
 Read-only inspection of Studio 6.0.5's `OmniProjection<RadtanDistortPro>` type,
 offset parser, forward projection and backprojection establishes the polynomial
 below. A1's shorter model has a separate geometry type. The code independently
@@ -157,16 +170,60 @@ Check full moving intervals for seams, horizon, rapid rotation and nearby geomet
 and verify audio against visible/audible events. Existing ClarityPlus references
 and parameter parsing alone cannot establish those results.
 
-No clean Studio reference was generated. On the latest permission recheck,
-`AXIsProcessTrusted()` still returns false for the execution client and the
-read-only Studio window-name query fails with `osascript is not allowed assistive
-access` (-1728). Screen-capture preflight succeeds. A supported headless export
-interface has not been established. No automation permission, SDK, vendor runtime
-dependency or security setting was installed or changed. Reference generation
-requires Accessibility access for the client running osascript, or clean exports
-from the already available originals, rather than lens recalibration.
+After the user enabled client access and restarted ChatGPT, Accessibility trust,
+screen-capture preflight and harmless Studio control queries succeeded. Four new
+native reference exports were completed through Studio 6.0.6 using checksummed
+working copies and independent saved projects. The task did not change permission
+or security settings, accept agreements, adopt an SDK or add a vendor dependency.
+Existing originals, projects and reference exports were preserved.
 
-Required references are native 7680x3840 standard SDR spheres with explicit source
+Each recording has an unstabilized optical export and a corresponding FlowState
+export, both with direction lock off, accessory 0 (guards off), optional stitching
+optimization and chromatic calibration off, ClarityPlus/color processing off,
+HDR/APMP off, source frame rate and retained stereo 48 kHz AAC. Export dialogs and
+actual saved project settings were retained privately. A saved multiframe-denoise
+flag remains true without an active video enhancement switch; its runtime gating
+has not been independently traced, so these exports are not asserted to prove
+absence of all temporal vendor processing.
+
+All four exports fully decode as 7680x3840 HEVC at 30000/1001 fps. The short pair
+contains 167 frames from source frame zero. The long pair contains 3497 output
+frames, while the original has 3496. Its inherited left trim was cleared before
+export. The final additional output frame has no new source frame and must be
+excluded from a source-mapped comparison; its small differences from the preceding
+frame do not establish additional captured motion. Use only the covered original
+range 0 through 3495. Container counts alone do not certify every intermediate
+frame's correspondence.
+
+Private comparisons used native 3840-square images from both lenses and six
+perspective faces sampled from native references at three frames per recording.
+The centered endpoint model produced holdout median angular residuals of about
+0.046–0.194 degrees, versus 0.190–0.565 for an uncropped endpoint model. Endpoint
+and dimension scaling differed too little to qualify their distinction by these
+image measurements alone; the endpoint convention remains based on function
+inspection. Fitted rotations and spatial residuals are diagnostic evidence, not
+qualified lens extrinsics or seam profiles. Recorded angle slots do not directly
+establish the opposing lens poses without the renderer's basis/index conventions.
+
+Raw-to-FlowState image fits at 20 sampled frames across both recordings produced
+median angular residuals of about 0.024–0.093 degrees after one rigid rotation per
+frame. These establish closely corresponding reference content and applied pose;
+they do not qualify an independent stabilizer or horizon quality. A gyro mounting,
+bias and clock experiment fitted six short-clip gravity poses, held out five more,
+then transferred to the longer recording. Holdout RMS was about 0.013 degrees but
+transfer RMS was 10.7 degrees, reaching 17.5 degrees near the end. Gravity-only
+fits leave heading, accelerometer fusion, gyro bias and image/readout timing
+confounded. No fitted mounting, bias or clock constant was adopted.
+
+Decoded audio is identical within each raw/FlowState pair. Across two short-clip
+and five long-clip windows, reference audio lags the decoded source by 1103–1104
+samples (about 23 ms), with correlation about 0.943–0.994. The references also
+contain more decoded audio samples than the originals. This repeatable vendor
+decode/export observation does not establish acoustic/visual sync or authorize
+padding/offsets in independent output. Visible/audible event validation remains
+required; source PCM companions still preserve their original timestamp mapping.
+
+Further qualification uses native 7680x3840 standard SDR spheres with explicit source
 frame ranges and retained audio. Record the actual lens-guard/accessory override,
 FlowState and direction-lock settings and disable ClarityPlus, denoising and other
 enhancements. Use separate output names and preserve saved projects and existing

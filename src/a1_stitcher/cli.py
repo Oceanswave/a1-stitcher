@@ -87,12 +87,20 @@ def parser():
     recorded.add_argument("source")
     recorded.add_argument("--frame", type=int)
     recorded.add_argument("--lens", type=int, choices=[0, 1])
-    recorded.add_argument(
+    direction = recorded.add_mutually_exclusive_group()
+    direction.add_argument(
         "--pixel",
         type=float,
         nargs=2,
         metavar=("U", "V"),
         help="Experimental recorded V6 ray at a decoded pixel center; requires --lens",
+    )
+    direction.add_argument(
+        "--ray",
+        type=float,
+        nargs=3,
+        metavar=("X", "Y", "Z"),
+        help="Experimental decoded pixel for a lens-coordinate ray; requires --lens",
     )
     recorded.add_argument("--output")
     recorded.add_argument("--redact-path", action="store_true")
@@ -410,13 +418,19 @@ def main(argv=None):
                 from .recorded import recorded_calibration
 
                 result = recorded_calibration(args.source, frame=args.frame)
-                if (args.pixel is None) != (args.lens is None):
-                    raise StitchError("Use --pixel U V and --lens together")
+                if (args.pixel is None and args.ray is None) != (args.lens is None):
+                    raise StitchError("Use --pixel U V or --ray X Y Z together with --lens")
                 if args.pixel is not None:
                     from .x5_projection import pixel_diagnostic
 
                     result["ray_diagnostic"] = pixel_diagnostic(
                         result["parameters"], args.lens, args.pixel
+                    )
+                elif args.ray is not None:
+                    from .x5_projection import ray_diagnostic
+
+                    result["ray_diagnostic"] = ray_diagnostic(
+                        result["parameters"], args.lens, args.ray
                     )
             else:
                 result = InsvReader(args.source).inspect()

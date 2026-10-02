@@ -4,7 +4,7 @@
 
 - Recover recorded X5 V6 lens/accessory parameter candidates and exposure-clock
   evidence with `recorded-calibration`, including source identity and parameter
-  fingerprints. Add explicit `--lens`/`--pixel` diagnostics applying an independently
+  fingerprints. Add explicit `--lens`/`--pixel` and `--ray` diagnostics applying an independently
   implemented 13-term lens model and observed centered crop convention. Preserve
   opaque accessory/gyro slots and leave timing offsets unapplied. X5 rendering
   remains gated pending native motion, seam, stabilization and audio-sync validation.

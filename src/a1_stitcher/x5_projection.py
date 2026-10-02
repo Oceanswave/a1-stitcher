@@ -162,6 +162,44 @@ def unproject(points, lens):
     return rays, valid
 
 
+def project(rays, lens):
+    """Lens-coordinate rays to decoded pixel centers, with explicit validity."""
+    rays = np.asarray(rays, dtype=np.float64)
+    if rays.ndim != 2 or rays.shape[1] != 3 or not np.isfinite(rays).all():
+        raise StitchError("V6 rays must be finite N by 3 coordinates")
+    # Normalize through the largest component to avoid overflow or underflow.
+    magnitude = np.max(np.abs(rays), axis=1)
+    if np.any(magnitude == 0):
+        raise StitchError("V6 rays must be nonzero")
+    direction = rays / magnitude[:, None]
+    direction /= np.linalg.norm(direction, axis=1)[:, None]
+    xi = lens["xi"]
+    xy = direction[:, :2] / (direction[:, 2, None] + xi)
+    value, derivative = distort(xy, lens["distortion"], jacobian=True)
+    pixels = value * lens["focal"] + lens["center"]
+    valid = (
+        (direction[:, 2] > -1 / xi)
+        & (np.linalg.det(derivative) > 1e-12)
+        & np.all((pixels >= 0) & (pixels <= lens["width"] - 1), axis=1)
+    )
+    return pixels, valid
+
+
+def ray_diagnostic(parameters, lens_index, ray):
+    lens = diagnostic_lens(parameters, lens_index)
+    pixels, valid = project(np.asarray(ray, dtype=float).reshape(1, 3), lens)
+    if not valid[0]:
+        raise StitchError("Ray has no in-bounds, unfolded near-branch V6 pixel")
+    report = pixel_diagnostic(parameters, lens_index, pixels[0].tolist())
+    # A positive local Jacobian alone cannot exclude another distant solution.
+    direction = np.asarray(ray, dtype=float) / np.max(np.abs(ray))
+    direction /= np.linalg.norm(direction)
+    if not np.allclose(report["unit_ray"], direction, rtol=0, atol=1e-8):
+        raise StitchError("V6 projected ray does not match the diagnostic inverse")
+    report["operation"] = "lens ray to decoded pixel"
+    return report
+
+
 def pixel_diagnostic(parameters, lens_index, pixel):
     lens = diagnostic_lens(parameters, lens_index)
     rays, valid = unproject(np.asarray(pixel, dtype=float).reshape(1, 2), lens)

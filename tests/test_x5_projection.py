@@ -8,6 +8,8 @@ from a1_stitcher.x5_projection import (
     diagnostic_lens,
     distort,
     pixel_diagnostic,
+    project,
+    ray_diagnostic,
     undistort,
     unproject,
 )
@@ -127,4 +129,54 @@ def test_invalid_polynomial_inputs_and_folded_inverse_are_not_valid():
     coefficients = np.zeros(13)
     coefficients[0] = -1
     _, valid = undistort([[1, 0]], coefficients)
+    assert not valid[0]
+
+
+def test_forward_projection_is_scale_invariant_and_inverts_nonzero_distortion(parameters):
+    coefficients = [0.012, -0.007, 0.003, -0.001, 0.0001] + [0.001] * 8
+    for record in ("offset_v6", "original_offset_v6"):
+        parameters[record]["lenses"][0]["distortion_slots"] = coefficients
+    lens = diagnostic_lens(parameters, 0)
+    rays = np.array([[0.3, -0.4, np.sqrt(0.75)], [-0.6, 0, 0.8], [0, 0, 1]])
+    pixels, valid = project(rays, lens)
+    scaled, scaled_valid = project(rays * np.array([1e300, 1e-300, 17])[:, None], lens)
+    assert valid.all() and scaled_valid.all()
+    assert scaled == pytest.approx(pixels, abs=1e-12)
+    recovered, inverse_valid = unproject(pixels, lens)
+    assert inverse_valid.all()
+    assert recovered == pytest.approx(rays, abs=1e-10)
+    report = ray_diagnostic(parameters, 0, [0, 0, 17])
+    assert report["decoded_pixel"] == pytest.approx(lens["center"])
+    assert report["unit_ray"] == pytest.approx([0, 0, 1])
+    assert not report["applied_to_renderer"]
+
+
+def test_forward_projection_matches_hand_computed_normalized_polynomial(parameters):
+    lens = diagnostic_lens(parameters, 0)
+    lens["distortion"][9] = 0.1
+    ray = np.array([[0.3, 0.4, np.sqrt(0.75)]])
+    xy = ray[0, :2] / (ray[0, 2] + lens["xi"])
+    expected = lens["center"] + lens["focal"] * (xy + [0.1 * np.sum(xy**2), 0])
+    pixel, valid = project(ray, lens)
+    assert valid[0]
+    assert pixel[0] == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("ray", [[0, 0, 0], [0, float("nan"), 1], [0, float("inf"), 1]])
+def test_invalid_forward_rays_fail(parameters, ray):
+    with pytest.raises(StitchError):
+        ray_diagnostic(parameters, 0, ray)
+
+
+def test_forward_projection_rejects_far_branch_uncovered_and_folded_rays(parameters):
+    lens = diagnostic_lens(parameters, 0)
+    _, valid = project([[0, 0, -1], [1, 0, -0.6]], lens)
+    assert not valid.any()
+    with pytest.raises(StitchError, match="near-branch"):
+        ray_diagnostic(parameters, 0, [0, 0, -1])
+    lens["focal"] *= 10
+    _, valid = project([[0.6, 0, 0.8]], lens)
+    assert not valid[0]
+    lens["distortion"][0] = -10
+    _, valid = project([[0.9, 0, np.sqrt(0.19)]], lens)
     assert not valid[0]
