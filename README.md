@@ -54,6 +54,8 @@ A1 exports, CLI compatibility and camera-specific profile boundaries remain inta
 [recorded X5 V6 lens/accessory parameters and exposure-clock evidence](docs/x5-recorded-parameters.md).
 It prioritizes interpreting the calibration already in originals; it does not
 apply unverified coefficients, gyro transforms or image timing to rendering.
+An explicit `--lens 0 --pixel U V` applies the recorded V6 polynomial to an
+experimental pixel-ray diagnostic. It does not enable X5 sphere export.
 
 ## What conversion preserves and bakes in
 

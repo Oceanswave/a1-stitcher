@@ -67,6 +67,10 @@ clock evidence](x5-recorded-parameters.md) with `recorded-calibration`. The orig
 already carry additional calibration data; interpreting and validating those
 values comes before requiring manual recalibration. Parameter recovery does not
 enable sphere export.
+Explicit `--lens`/`--pixel` ray diagnostics now apply recorded V6 intrinsics and
+the independently implemented thirteen-term distortion model to the observed
+bare/centered-crop layout. They remain separate from renderer profiles and gyro
+interpretation; unsupported accessories and window layouts fail.
 
 Private PCM checks covered two source-mapped intervals (150 frames from source
 frame 0, and 600 frames from source frame 89). The companions fully decoded with

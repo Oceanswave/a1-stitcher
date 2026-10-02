@@ -86,6 +86,14 @@ def parser():
     )
     recorded.add_argument("source")
     recorded.add_argument("--frame", type=int)
+    recorded.add_argument("--lens", type=int, choices=[0, 1])
+    recorded.add_argument(
+        "--pixel",
+        type=float,
+        nargs=2,
+        metavar=("U", "V"),
+        help="Experimental recorded V6 ray at a decoded pixel center; requires --lens",
+    )
     recorded.add_argument("--output")
     recorded.add_argument("--redact-path", action="store_true")
     audio = sub.add_parser(
@@ -402,6 +410,14 @@ def main(argv=None):
                 from .recorded import recorded_calibration
 
                 result = recorded_calibration(args.source, frame=args.frame)
+                if (args.pixel is None) != (args.lens is None):
+                    raise StitchError("Use --pixel U V and --lens together")
+                if args.pixel is not None:
+                    from .x5_projection import pixel_diagnostic
+
+                    result["ray_diagnostic"] = pixel_diagnostic(
+                        result["parameters"], args.lens, args.pixel
+                    )
             else:
                 result = InsvReader(args.source).inspect()
             if args.redact_path:

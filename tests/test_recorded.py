@@ -191,6 +191,19 @@ def test_cli_redaction_and_no_clobber_do_not_enable_x5(recorded_source, tmp_path
     assert main(["recorded-calibration", str(recorded_source), "--frame", "8"]) == 1
 
 
+def test_cli_applies_recorded_geometry_only_to_explicit_ray_diagnostic(recorded_source, capsys):
+    payload = metadata_payload() + pb(27, pb(1, 128) + pb(2, 128) + pb(3, 128) + pb(4, 128))
+    recorded_source.write_bytes(trailer([(1, payload), (4, exposure_payload())]))
+    args = ["recorded-calibration", str(recorded_source)]
+    assert main(args + ["--lens", "1", "--pixel", "64", "65"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ray_diagnostic"]["unit_ray"] == pytest.approx([0, 0, 1])
+    assert not report["sphere_export_available"]
+    assert main(args + ["--lens", "1"]) == 1
+    assert main(args + ["--pixel", "64", "65"]) == 1
+    assert main(args + ["--lens", "1", "--pixel", "nan", "65"]) == 1
+
+
 @pytest.mark.integration
 def test_real_container_ingest_and_recorded_parameters_remain_separate_from_a1(
     synthetic_camera, tmp_path
