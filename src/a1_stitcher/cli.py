@@ -81,6 +81,34 @@ def parser():
     preflight.add_argument("source")
     preflight.add_argument("--output")
     preflight.add_argument("--redact-path", action="store_true")
+    recorded = sub.add_parser(
+        "recorded-calibration", help="Read X5 recorded lens/accessory parameters and clock evidence"
+    )
+    recorded.add_argument("source")
+    recorded.add_argument("--frame", type=int)
+    recorded.add_argument("--lens", type=int, choices=[0, 1])
+    recorded.add_argument(
+        "--pose",
+        action="store_true",
+        help="Diagnostic recorded V6 dewarp rotation; requires --lens, never enables export",
+    )
+    direction = recorded.add_mutually_exclusive_group()
+    direction.add_argument(
+        "--pixel",
+        type=float,
+        nargs=2,
+        metavar=("U", "V"),
+        help="Experimental recorded V6 ray at a decoded pixel center; requires --lens",
+    )
+    direction.add_argument(
+        "--ray",
+        type=float,
+        nargs=3,
+        metavar=("X", "Y", "Z"),
+        help="Experimental decoded pixel for a lens-coordinate ray; requires --lens",
+    )
+    recorded.add_argument("--output")
+    recorded.add_argument("--redact-path", action="store_true")
     audio = sub.add_parser(
         "extract-audio", help="Export a frame-mapped PCM companion from qualified ingest"
     )
@@ -384,13 +412,40 @@ def main(argv=None):
             from .audio import extract_audio
 
             result = extract_audio(args.source, args.output, args.first_frame, args.frames)
-        elif args.command in ("inspect", "preflight"):
+        elif args.command in ("inspect", "preflight", "recorded-calibration"):
             from .insv import InsvReader
 
             if args.command == "preflight":
                 from .preflight import preflight
 
                 result = preflight(args.source)
+            elif args.command == "recorded-calibration":
+                from .recorded import recorded_calibration
+
+                result = recorded_calibration(args.source, frame=args.frame)
+                has_diagnostic = args.pixel is not None or args.ray is not None or args.pose
+                if has_diagnostic != (args.lens is not None):
+                    raise StitchError("Use --pixel U V, --ray X Y Z or --pose together with --lens")
+                if args.pixel is not None:
+                    from .x5_projection import pixel_diagnostic
+
+                    result["ray_diagnostic"] = pixel_diagnostic(
+                        result["parameters"], args.lens, args.pixel
+                    )
+                elif args.ray is not None:
+                    from .x5_projection import ray_diagnostic
+
+                    result["ray_diagnostic"] = ray_diagnostic(
+                        result["parameters"], args.lens, args.ray
+                    )
+                if args.pose:
+                    from .x5_projection import pose_diagnostic
+
+                    result["pose_diagnostic"] = pose_diagnostic(
+                        result["parameters"],
+                        args.lens,
+                        result.get("ray_diagnostic", {}).get("unit_ray"),
+                    )
             else:
                 result = InsvReader(args.source).inspect()
             if args.redact_path:

@@ -54,7 +54,7 @@ def preflight(source):
         []
         if adapter.sphere_export
         else [
-            "No measured X5 sensor-to-lens orientation and image-timing profile",
+            "Recorded X5 parameters need qualified sensor-to-lens and image-timing interpretation",
             "No independently rendered X5 native-resolution motion/seam qualification",
             "No X5 pilot-view interpretation; A1 records and profiles must not be reused",
         ]
