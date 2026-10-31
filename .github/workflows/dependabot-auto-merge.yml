@@ -1,7 +1,7 @@
 name: Dependabot auto-merge (patch/minor, green CI)
 # Merges a Dependabot PR only after a CI workflow run on its exact head
 # completed successfully, and only for semver patch/minor updates. Majors
-# never auto-merge. Runs on this repo's self-hosted runner.
+# never auto-merge. Runs on a GitHub-hosted runner (public repo).
 on:
   workflow_run:
     workflows:
@@ -13,7 +13,7 @@ permissions:
 jobs:
   merge:
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.actor.login == 'dependabot[bot]'
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     steps:
       - name: Merge if patch/minor and all checks green
         env:
