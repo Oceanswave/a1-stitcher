@@ -148,8 +148,8 @@ def calibrate(
         ]
 
     readout = sensor_readout(meta, fps, "auto")
-    motion, gyro = trajectory(reader, gyro_path, anchor_seconds)
     bounds = frame_time([first_frame, first_frame + frames - 1]) + [-0.04 - readout, 0.04 + readout]
+    motion, gyro = trajectory(reader, gyro_path, anchor_seconds, span=tuple(bounds))
     grid = np.linspace(*bounds, int(np.ceil(np.diff(bounds)[0] * 1000)) + 1)
     pose = Slerp(grid, motion(grid))
     width = 768

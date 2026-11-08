@@ -292,7 +292,12 @@ def plan(options, progress=None, *, prepared_alignment=None):
     if options.gyro_profile:
         from .gyro import trajectory
 
-        motion, gyro = trajectory(reader, options.gyro_profile, options.gyro_anchor_seconds)
+        motion, gyro = trajectory(
+            reader,
+            options.gyro_profile,
+            options.gyro_anchor_seconds,
+            span=(begin - readout / 2, end + readout / 2),
+        )
         if visual_sync and (
             fingerprint(gyro) != visual_sync["gyro_profile_fingerprint"]
             or options.gyro_anchor_seconds != visual_sync["gyro_anchor_seconds"]
@@ -491,12 +496,6 @@ def stitch(options, progress=None, dry_run=False, *, prepared_alignment=None):
                 "calibration"
             ].get("time_shift_seconds", 0.0)
             interpolation = Slerp(times, poses)
-            if options.gyro_profile:
-                from .gyro import trajectory
-
-                interpolation, _ = trajectory(
-                    job["reader"], options.gyro_profile, options.gyro_anchor_seconds
-                )
             if job["calibration"].get("frame_clock") == "exposure-midpoint-v1":
                 from .exposure import ExposureClock
 
@@ -505,6 +504,15 @@ def stitch(options, progress=None, dry_run=False, *, prepared_alignment=None):
                         np.arange(options.frames) + options.first_frame
                     )
                     + job["calibration"]["time_shift_seconds"]
+                )
+            if options.gyro_profile:
+                from .gyro import trajectory
+
+                interpolation, _ = trajectory(
+                    job["reader"],
+                    options.gyro_profile,
+                    options.gyro_anchor_seconds,
+                    span=(float(np.min(samples)), float(np.max(samples))),
                 )
             pose = interpolation(samples)
             mount = Rotation.from_matrix(job["calibration"].get("lens_mount", np.eye(3)))

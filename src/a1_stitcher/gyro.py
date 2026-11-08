@@ -232,7 +232,12 @@ class AnchoredGyro:
         )
 
 
-def trajectory(reader, profile_path, anchor_seconds=0.1):
+def trajectory(reader, profile_path, anchor_seconds=0.1, span=None):
+    """Gyro-anchored motion for a recording.
+
+    `span` is the (start, end) attitude time in seconds that will be queried. When given,
+    attitude gaps are only rejected inside it; None keeps the whole-recording rule.
+    """
     profile = validate(load_json(profile_path), reader.metadata())
     times, poses = orientation37(reader)
     rt, values = raw_gyro(reader)
@@ -242,7 +247,18 @@ def trajectory(reader, profile_path, anchor_seconds=0.1):
         or not 0.02 <= anchor_seconds <= 1
     ):
         raise StitchError("Gyro anchor interval must be 0.02 to 1 second")
-    if np.max(np.diff(times)) > 0.050001:
+    checked = times
+    if span is not None:
+        # A dropped attitude sample minutes away from the stitched range cannot affect it:
+        # only the recorded intervals bracketing the queried span are held to the 50 ms rule.
+        try:
+            start, end = (float(v) for v in span)
+        except (TypeError, ValueError):
+            raise StitchError("Gyro span must be a (start, end) pair of seconds") from None
+        if not (np.isfinite([start, end]).all() and times[0] <= start <= end <= times[-1]):
+            raise StitchError("Gyro span must be an ordered range inside recorded attitude")
+        checked = times[max(0, np.searchsorted(times, start) - 1) : np.searchsorted(times, end) + 1]
+    if len(checked) > 1 and np.max(np.diff(checked)) > 0.050001:
         raise StitchError("Recorded attitude contains gaps")
     if anchor_seconds > 0.02:
         anchor_times = np.arange(times[0], times[-1], anchor_seconds)

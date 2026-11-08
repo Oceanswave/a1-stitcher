@@ -205,7 +205,7 @@ def test_refitted_calibration_enforces_gyro_and_readout_dependencies(
         plan(Options(**config))
     gyro_path = tmp_path / "gyro.json"
     write_new_json(gyro_path, sensor)
-    monkeypatch.setattr(gyro, "trajectory", lambda *a: (pose, sensor))
+    monkeypatch.setattr(gyro, "trajectory", lambda *a, **k: (pose, sensor))
     from a1_stitcher import render
 
     monkeypatch.setattr(render, "sensor_readout", lambda *a: 0.02)
@@ -308,7 +308,7 @@ def test_sync_command_abstains_on_blank_recording_without_writing_profile(
 
     actual = media.source_profile
     monkeypatch.setattr(media, "source_profile", lambda *a: actual(*a) | dict(frames=100))
-    monkeypatch.setattr(gyro, "trajectory", lambda *a: (pose, {"synthetic": True}))
+    monkeypatch.setattr(gyro, "trajectory", lambda *a, **k: (pose, {"synthetic": True}))
 
     @contextmanager
     def blank(*args, **kwargs):

@@ -173,6 +173,33 @@ def test_anchor_spacing_does_not_reintroduce_recorded_jitter(tmp_path):
             trajectory(sensor, path, bad)
 
 
+def test_attitude_gaps_only_matter_inside_the_requested_span(tmp_path):
+    import json
+
+    from a1_stitcher.gyro import trajectory
+
+    clean = Sensor()
+    gapped = copy.copy(clean)
+    # Two dropped 50 Hz attitude samples leave one 60 ms interval near t=20 s.
+    keep = (clean.pt < 19.99) | (clean.pt > 20.03)
+    gapped.pose = b"".join(clean.pose[i * 36 : (i + 1) * 36] for i in np.flatnonzero(keep))
+    path = tmp_path / "gyro.json"
+    path.write_text(json.dumps(profile()))
+
+    with pytest.raises(StitchError, match="contains gaps"):
+        trajectory(gapped, path, 0.1)
+    with pytest.raises(StitchError, match="contains gaps"):
+        trajectory(gapped, path, 0.1, span=(19.5, 21.0))
+
+    reference, _ = trajectory(clean, path, 0.1, span=(40.0, 45.0))
+    motion, _ = trajectory(gapped, path, 0.1, span=(40.0, 45.0))
+    query = np.arange(40.0, 45.0, 0.013)
+    assert np.max((reference(query).inv() * motion(query)).magnitude()) < 1e-6
+    for bad in [(45.0, 40.0), (float("nan"), 41.0), (-5.0, 1.0), (40.0, 200.0)]:
+        with pytest.raises(StitchError, match="span"):
+            trajectory(gapped, path, 0.1, span=bad)
+
+
 def test_query_results_do_not_depend_on_cache_or_batch_partition():
     t = np.arange(0, 2.001, 0.001)
     anchors = np.arange(0, 2.001, 0.1)

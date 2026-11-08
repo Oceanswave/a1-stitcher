@@ -25,6 +25,10 @@
   whole-flight arrays between jobs.
 - Document A1-only priorities, timelapse, DNG/HDR photos, goggles audio and the
   absence of confirmed A1 Log/HDR video support in the official sources checked.
+- Apply the gyro-profile 50 ms recorded-attitude gap rule only to the attitude
+  intervals bracketing the stitched, rendered or visual-sync range. An isolated
+  dropped sample elsewhere in a flight no longer rejects the whole recording;
+  gaps inside the range still fail. Calibration fitting keeps the whole-flight rule.
 
 ## 0.9.0 — 2026-09-12
 
